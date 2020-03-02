@@ -820,7 +820,7 @@ Multiqc report can be viewed [here](https://github.com/amyzyck/EecSeq_NB_Eastern
 
 **Download _Crassostrea virginica_ genome**
 
-Jon added the Eastern Oyster genome to the 'NB_ddocent' Directory for me. Resources for the Eastern Oyster genome are on [NCBI](https://www.ncbi.nlm.nih.gov/Traces/wgs/MWPT03?display=contigs&page=1).
+Jon added the Eastern Oyster genome to the `NB_ddocent` Directory for me. Resources for the Eastern Oyster genome are on [NCBI](https://www.ncbi.nlm.nih.gov/Traces/wgs/MWPT03?display=contigs&page=1).
 
 ```
 # In NB_ddocent directory
