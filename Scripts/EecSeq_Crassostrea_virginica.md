@@ -693,7 +693,7 @@ $ scp -r -P XXXX x@kitt.uri.edu:/home/azyck/NB_capture/demultiplexed_fastqc_resu
 
 Multiqc report can be viewed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Output/multiqc/demultiplexed_multiqc_report.html).
 
-### 4. Read Trimming, Assembly, Mapping, and SNP Calling
+### 4. Read Trimming, Mapping, and SNP Calling
 
 Using [**dDocent**](http://www.ddocent.com/)
 
