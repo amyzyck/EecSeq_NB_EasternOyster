@@ -1,8 +1,8 @@
-# Outlier Detection
+# *Crassostrea virginica* EecSeq Outlier Detection
 
 Author: Amy Zyck
 
-Last Edited: March 15, 2020
+Last Edited: March 16, 2020
 
 [PCAdapt](https://bcm-uga.github.io/pcadapt/articles/pcadapt.html), [OutFLANK](https://github.com/whitlock/OutFLANK), [BayeScan](http://cmpg.unibe.ch/software/BayeScan/), and [BayEnv2](https://gcbias.org/bayenv/) were used to identify any outliers. Outlier detection programs were run on `SNP.TRSdp5g5mafMIp9g9dnDNAmaf052A.recode.vcf`.
 
