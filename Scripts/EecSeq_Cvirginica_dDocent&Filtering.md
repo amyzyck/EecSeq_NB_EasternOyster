@@ -1,4 +1,4 @@
-# *Crassostrea virginica* EecSeq Seascape Genomics Analysis
+# *Crassostrea virginica* EecSeq Demultiplexing, dDocent, and VCF Filtering  
 
 Author: Amy Zyck
 
