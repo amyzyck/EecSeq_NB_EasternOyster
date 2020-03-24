@@ -1,5 +1,5 @@
 # Investigating the effects of sewage effluent and coastal acidification on the genomic diversity and structure of oyster populations in Narragansett Bay
-_Amy Zyck<sup>1</sup>, Nina Padro<sup>1</sup>, Allison Gallagher<sup>1</sup>, Rebecca Stevick<sup>2</sup>, Marta Gomez-Chiarri<sup>2</sup>, & Jonathan Puritz<sup>1</sup>_
+_Amy Zyck<sup>1</sup>, Rebecca Stevick<sup>2</sup>, Nina Padro<sup>1</sup>, Allison Gallagher<sup>1</sup>, Marta Gomez-Chiarri<sup>2</sup>, & Jonathan Puritz<sup>1</sup>_
 1. University of Rhode Island, Department of Biological Sciences
 2. University of Rhode Island, Department of Fisheries, Animal, and Veterinary Sciences
 
