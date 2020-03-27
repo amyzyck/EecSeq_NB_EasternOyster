@@ -627,7 +627,7 @@ NC_035780.1	58431616
 ##### _In Terminal_
 
 ```
-$ conda create - n nb_capture2 conda create -n nb_capture2 python=3.7.3
+$ conda create -n nb_capture2 python=3.7.3
 $ conda activate nb_capture2
 ```
 
