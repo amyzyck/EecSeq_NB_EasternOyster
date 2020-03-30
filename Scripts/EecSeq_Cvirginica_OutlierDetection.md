@@ -2,7 +2,7 @@
 
 Author: Amy Zyck
 
-Last Edited: March 16, 2020
+Last Edited: March 29, 2020
 
 [PCAdapt](https://bcm-uga.github.io/pcadapt/articles/pcadapt.html), [OutFLANK](https://github.com/whitlock/OutFLANK), [BayeScan](http://cmpg.unibe.ch/software/BayeScan/), and [BayEnv2](https://gcbias.org/bayenv/) were used to identify any outliers. Outlier detection programs were run on `SNP.TRSdp5g5mafMIp9g9dnDNAmaf052A.recode.vcf`.
 
@@ -1067,9 +1067,9 @@ The bayes factor for each SNP for each of the seven environmental variables is s
 **Convert `bf_environ.environ` into something suitable to input into R.**
 
 ```
-# In column 1 replace the SNP names with numbers: 1-75339
-# There were originally 75402 SNPs but 63 were removed when converting from VCF to BayEnv format because they were not polymorphic
-$ paste <(seq 1 75339) <(cut -f2,3,4,5,6,7,8 bf_environ.environ ) > bayenv.out
+# In column 1 replace the SNP names with numbers: 1-75152
+# There were originally 75402 SNPs but 150 were removed when converting from VCF to BayEnv format because they were not polymorphic
+$ paste <(seq 1 75152) <(cut -f2,3,4,5,6,7,8 bf_environ.environ ) > bayenv.out
 
 # Add a header for each column
 $ cat <(echo -e "Locus\tBF1\tBF2\tBF3\tBF4\tBF5\tBF6\tBF7") bayenv.out > bayenv.final
@@ -1088,13 +1088,9 @@ outliers1 <- table_bay[which(table_bay$BF1 > 100),]
 outliers1
 ```
 
-| Locus |  BF1   |    BF2   |    BF3   |    BF4   |   BF5   |    BF6   |    BF7   |
-|:-----:|:------:|:--------:|:--------:|:--------:|:-------:|:--------:|:--------:|
-| 27737 | 106.37 |  8.8421  | 0.076519 | 0.034635 | 0.35916 | 0.028208 |  8.5728  |
-| 39889 | 883.44 | 395.5000 | 0.048000 | 0.033569 | 1.74560 | 0.024682 | 104.3200 |
+No outliers identified:
 
-
-![BF1](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Output/Outlier_Detection/BF1.png)
+![BayF1](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Output/Outlier_Detection/BayF1.png)
 
 This was repeated for BayesFactors 2-7.
 
@@ -1107,16 +1103,19 @@ $ outliers_total <- unique.data.frame(outliers)
 $ outliers_total
 ```
 
-| Locus |    BF1   |    BF2   |    BF3   |    BF4   |    BF5   |    BF6   |    BF7   |
-|:-----:|:--------:|:--------:|:--------:|:--------:|:--------:|:--------:|:--------:|
-| 27737 |   106.37 |   8.8421 | 0.076519 | 0.034635 |  0.35916 | 0.028208 |   8.5728 |
-| 39889 |   883.44 |    395.5 |    0.048 | 0.033569 |   1.7456 | 0.024682 |   104.32 |
-| 21541 |   1.8135 |    406.4 |   650.73 | 0.172680 | 0.053146 | 0.036062 | 0.070963 |
-| 52109 | 0.066906 |   1.0268 |    265.8 |   2.2975 | 0.097344 | 0.044576 | 0.078281 |
-| 19931 | 0.031409 | 0.029403 |   5.3465 |   179.64 |  0.21174 | 0.041687 | 0.059667 |
-| 42577 | 0.054503 | 0.039266 |  0.34081 | 112.7300 |  0.47104 | 0.039422 |  0.18091 |
-| 65350 | 0.045733 | 0.022006 | 0.038779 | 0.040339 |   131.16 |  0.31913 |   10.331 |
-| 71265 |   1.2248 | 0.057496 | 0.068388 | 0.029276 |   292.06 |  0.57152 |   149.97 |
+| Locus |    BF1   |    BF2   |    BF3   |    BF4   |     BF5    |    BF6   |     BF7    |
+|:-----:|:--------:|:--------:|:--------:|:--------:|:----------:|:--------:|:----------:|
+| 14964 |  0.42959 | 0.045923 | 0.045564 | 0.043329 | 1.6724e+02 | 7.737900 | 4.4629e+01 |
+| 17572 |   2.9279 | 0.044583 | 0.041009 | 0.045147 | 3.1868e+03 | 3.617000 | 1.0896e+03 |
+| 19987 |  0.15004 |  0.13188 |   4.5686 |   334.63 | 1.4725e-01 |  0.10059 | 1.1171e-01 |
+| 20899 |  0.21218 |  0.73971 |   110.56 |   9.6912 | 7.2967e-02 | 0.054825 | 6.7746e-02 |
+| 33279 | 0.065375 |   0.7632 |   133.70 |   5.5882 | 3.8977e-02 | 0.037459 | 3.2558e-02 |
+| 38968 |  0.10745 |  0.16364 |   98.426 |   179.51 | 4.8184e-02 | 0.052549 | 5.4444e-02 |
+| 42549 |   2.2624 | 0.037646 | 0.021242 | 0.022797 | 6.0928e+02 | 0.049653 | 5.3130e+02 |
+| 50789 |   0.1222 |   1.1601 |   495.04 |   19.272 | 6.6858e-02 | 0.058311 | 4.7168e-02 |
+| 54194 |  0.05102 |  0.13102 | 0.082396 | 0.048275 | 3.5243e-01 |   167.97 | 7.6152e-02 |
+| 58383 |   6.8223 |   21.862 |   155.34 |   1.5474 | 4.1303e-02 | 0.046958 | 5.8122e-02 |
+| 69248 | 0.025009 | 0.022183 |   1.8039 |   345.83 | 3.3897e-02 | 0.033261 | 2.8623e-02 |
 
 **Save outliers to .txt file**
 
@@ -1135,14 +1134,16 @@ $ invisible(lapply(total_outliers, write, "outliers3.txt", append=TRUE))
 $ head outliers3.txt
 
 output:
-27737
-39889
-21541
-52109
-19931
-42577
-65350
-71265
+20899
+33279
+50789
+58383
+19987
+38968
+69248
+14964
+17572
+42549
 ```
 
 **Save outliers to new file**
@@ -1156,14 +1157,16 @@ $ cat outliers3.txt | parallel "grep -w ^{} loci3.plus.index" | cut -f2,3> outli
 $ head outlier3.loci.txt
 
 output:
-NC_035782.1	55552784
-NC_035784.1	2379671
-NC_035782.1	12210921
-NC_035784.1	65731048
-NC_035781.1	55271169
-NC_035784.1	16554178
-NC_035787.1	37051720
-NC_035788.1	57268487
+NC_035782.1	3811652
+NC_035783.1	18475147
+NC_035784.1	59862728
+NC_035785.1	32466402
+NC_035781.1	57449356
+NC_035783.1	56550670
+NC_035788.1	19035433
+NC_035781.1	26985674
+NC_035781.1	41554587
+NC_035784.1	16551538
 ```
 
 # 5. Combine all outlier loci into one file
@@ -1173,7 +1176,7 @@ $ cat outlier*.loci.txt > all.outliers
 $ cut -f1 all.outliers | sort | uniq | wc -l
 
 output:
-10
+9
 ```
 
 # 6. Separating outlier and neutral loci into 2 VCF files
@@ -1195,11 +1198,11 @@ Parameters as interpreted:
 	--recode
 After filtering, kept 40 out of 40 Individuals
 Outputting VCF file...
-After filtering, kept 74523 out of a possible 75402 Sites
+After filtering, kept 74520 out of a possible 75402 Sites
 Run Time = 15.00 seconds
 ```
 
-_74523 neutral loci in `neutralloci.recode.vcf`._
+_74520 neutral loci in `neutralloci.recode.vcf`._
 
 **Create VCF file with just _outlier_ loci**
 
@@ -1218,11 +1221,11 @@ Parameters as interpreted:
 	--recode
 After filtering, kept 40 out of 40 Individuals
 Outputting VCF file...
-After filtering, kept 879 out of a possible 75402 Sites
+After filtering, kept 882 out of a possible 75402 Sites
 Run Time = 1.00 seconds
 ```
 
-_879 outlier loci in `outlierloci.recode.vcf`._
+_882 outlier loci in `outlierloci.recode.vcf`._
 
 ***
 
@@ -1232,4 +1235,4 @@ _879 outlier loci in `outlierloci.recode.vcf`._
 : `SNP.TRSdp5g5mafMIp9g9dnDNAmaf052A4.recode.vcf`
 * Neutral SNPs only: `neutralloci.recode.vcf`
 
-**_Note_**: I chose to include all outliers identified across all 4 outlier programs. There was not 1 loci that was identified as an outlier by all 4 programs. 
+**_Note_**: I chose to include all outliers identified across all 4 outlier programs. There was not 1 loci that was identified as an outlier by all 4 programs.
