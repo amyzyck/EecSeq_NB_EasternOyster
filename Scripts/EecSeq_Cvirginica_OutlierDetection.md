@@ -1068,7 +1068,7 @@ The bayes factor for each SNP for each of the seven environmental variables is s
 
 ```
 # In column 1 replace the SNP names with numbers: 1-75152
-# There were originally 75402 SNPs but 150 were removed when converting from VCF to BayEnv format because they were not polymorphic
+# There were originally 75402 SNPs but 250 were removed when converting from VCF to BayEnv format because they were not polymorphic
 $ paste <(seq 1 75152) <(cut -f2,3,4,5,6,7,8 bf_environ.environ ) > bayenv.out
 
 # Add a header for each column
