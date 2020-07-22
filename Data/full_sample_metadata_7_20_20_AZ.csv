@@ -1,4 +1,4 @@
-﻿Sample.ID,Plot_name,vcf_ID,Pop,Latitude ,Longitude ,Distance (km),SE (PW stats),Temperature,Salinity,pH,Chlorophyll-a,DO ,Library
+﻿Sample.ID,Plot_name,vcf_ID,Pop,Latitude ,Longitude ,Distance,SE,Temperature,Salinity,pH,Chlorophylla,DO ,Library
 BIS_10,BIS,BIS_10,BisselCove,41.545,-71.431,4.76,8.824635605,23,30,7.9,4.9,8.2,5
 BIS_1,BIS,BIS_1,BisselCove,41.545,-71.431,4.76,8.824635605,23,30,7.9,4.9,8.2,1
 BIS_2,BIS,BIS_2,BisselCove,41.545,-71.431,4.76,8.824635605,23,30,7.9,4.9,8.2,2
