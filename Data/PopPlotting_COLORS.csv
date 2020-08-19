@@ -1,5 +1,5 @@
 ﻿custom.id,Plot_order,Plot_name,Pop_Descrip,Type,Plot_color,Plot_pch
-03_BisselCove_BIS,3,BisselCove_BIS,(Overall low stress environment),wild,#8d8074,17
-02_GreenwichBay_GB,2,GreenwichBay_GB,(Low pH - Goddard State Park),wild,#167730,17
-04_NarrowRiver_NAR,4,NarrowRiver_NAR,"(Low salinity, high temps - up river)",wild,#0d9315,17
-01_Providence_PVD,1,01_Providence_PVD,(High sewage effluent influence - Bold Point Park,wild,#064276,17
+03_BisselCove_BIS,3,BisselCove_BIS,(Overall low stress environment),wild,#8d8074,19
+02_GreenwichBay_GB,2,GreenwichBay_GB,(Low pH - Goddard State Park),wild,#167730,19
+04_NarrowRiver_NAR,4,NarrowRiver_NAR,"(Low salinity, high temps - up river)",wild,#0d9315,19
+01_Providence_PVD,1,01_Providence_PVD,(High sewage effluent influence - Bold Point Park,wild,#064276,19
