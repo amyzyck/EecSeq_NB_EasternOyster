@@ -1248,7 +1248,7 @@ _841 outlier loci in `outlierloci.recode.vcf`._
 
 **Haplotig Masked files:**
 
-* All SNPs (oultier and neutral combined): `SSNP.TRSdp5g5mafMIp9g9dnDNAmaf052Ahap.recode.vcf`
+* All SNPs (oultier and neutral combined): `SNP.TRSdp5g5mafMIp9g9dnDNAmaf052Ahap.recode.vcf`
 * Neutral SNPs only: `neutrallocihap.recode.vcf`
 * Outlier SNPs only: `outlierlocihap.recode.vcf`
 
