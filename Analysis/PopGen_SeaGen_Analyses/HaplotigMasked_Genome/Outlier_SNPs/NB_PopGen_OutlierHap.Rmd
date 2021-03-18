@@ -578,7 +578,9 @@ s.class(pca1$li, pop(stratted.filt),xax=1,yax=2, col=col, axesell=FALSE, cstar=0
 
 # Seascape Redundancy Analysis
 
-## Prepare genetic data for redundancy analysis.
+This code follows that documented by [Tom Jenkins](https://github.com/Tom-Jenkins/seascape_rda_tutorial).
+
+## [Prepare genetic data for redundancy analysis](https://github.com/Tom-Jenkins/seascape_rda_tutorial/blob/master/1.Prepare_genetic_data/1.prepare_genetic_data.R).
 
 #### Notes before execution:
 1. Make sure all required R packages are installed.
@@ -639,7 +641,6 @@ maf_list = lapply(site_list, FUN = minorAllele)
 ```{r}
 # Convert list to dataframe
 maf = as.data.frame(maf_list) %>% t() %>% as.data.frame()
-head(maf)
 ```
 
 ```{r}
@@ -752,7 +753,7 @@ ggsave("allele_freq.pdf", width=10, height=8)
 ```
 
 
-## Prepare environmental data for redundancy analysis.
+## [Prepare environmental data for redundancy analysis](https://github.com/Tom-Jenkins/seascape_rda_tutorial/blob/master/3.Prepare_environmental_data/3.prepare_env_data.R).
 
 #### Environmental variables:
 - Distance from sewage effluent source (km)
@@ -773,3 +774,7 @@ strata_pop
 # Export data as a csv file
 write.csv(strata_pop, file="environmental_data.csv", row.names = FALSE)
 ```
+
+I also prepared spatial data for the redundancy analysis which is documented [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/HaplotigMasked_Genome/Outlier_SNPs/RedundancyAnalysis/PrepSpatialData.Rmd).
+
+Allele frequency, environmental, and spatial csv files are saved to your working directory and must be imported into the Rscript to run the redundancy analysis. Documentation of the RDA can be accessed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/HaplotigMasked_Genome/Outlier_SNPs/RedundancyAnalysis/RDA_Outlier_Hap.Rmd). 
