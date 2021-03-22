@@ -1,10 +1,10 @@
 ---
-title: "NB_PopGenHap"
+title: "NB Population Genomic Analysis on Haplotig Masked Outlier SNPs"
 author: "Amy Zyck"
 date: "2/23/2021"
 output:
-  pdf_document: default
   html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -204,7 +204,7 @@ __3. datapath.outer__
 **`datapath.outer` is created manually in Excel,based on site coordinates gathered from Google Maps, copied into terminal using `nano`, and saved as the file with the appropriate extension.** 
 
 
-**`runeems_snps` is then run in command-line following the steps documented in ... 
+**`runeems_snps` is then run in command-line following the steps documented in [NB_EEMS_OutlierHap.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/EEMS/NB_EEMS_OutlierHap.md) 
 
 **Back in RStudio to plot `runeems_snps` outputs**
 
@@ -764,6 +764,8 @@ ggsave("allele_freq.pdf", width=10, height=8)
 - Mean Chlorophyll-a (ug/L)
 - Mean Dissolved Oxygen (mg/L)
 
+Environmental data for each population is saved in a `strata_pop` file that can be accessed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/strata_pop)
+
 ```{r}
 # All environmental data was previously saved in strata file 
 strata_pop <- read.table("strata_pop", header=TRUE)
@@ -775,6 +777,8 @@ strata_pop
 write.csv(strata_pop, file="environmental_data.csv", row.names = FALSE)
 ```
 
-I also prepared spatial data for the redundancy analysis which is documented [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/HaplotigMasked_Genome/Outlier_SNPs/RedundancyAnalysis/PrepSpatialData.Rmd).
+I also prepared spatial data for the redundancy analysis which is documented [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/RedundancyAnalysis/PrepSpatialData.Rmd).
 
-Allele frequency, environmental, and spatial csv files are saved to your working directory and must be imported into the Rscript to run the redundancy analysis. Documentation of the RDA can be accessed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/HaplotigMasked_Genome/Outlier_SNPs/RedundancyAnalysis/RDA_Outlier_Hap.Rmd). 
+Allele frequency, environmental, and spatial csv files are saved to your working directory and must be imported into the Rscript to run the redundancy analysis. Documentation of the RDA can be accessed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/RedundancyAnalysis/RDA_Outlier_Hap.Rmd). 
+
+RDA and pRDA output plots can be viewed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/tree/master/Output/RedundancyAnalysis/HapMasked_Outlier).
