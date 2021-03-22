@@ -66,7 +66,7 @@ I created two additional parameter files, one with 300 demes `params-outlierdata
 
 #### Run the EEMS program
 ```javascript
-$ runeems_snps --params params-alldata-chain1.ini
+$ runeems_snps --params params-outlierdata-chain1.ini
 ```
 Repeat with the other two parameter files.
 
