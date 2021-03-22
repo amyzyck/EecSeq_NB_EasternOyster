@@ -1,0 +1,3338 @@
+---
+title: "NB Population Genomic Analysis on Non-Haplotig Masked Neutral SNPs"
+author: "Amy Zyck"
+date: "5/27/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Population analyses on Neutral SNP dataset 
+
+I first created a new directory `NB_PopGen_Neutral` within `PATH: /home/azyck/NB_capture/NB_ddocent`. I linked `neutralloci.recode.vcf` to this working directory. The RMarkdown file should be saved in this same working directory. 
+
+```{r}
+#Loading all the necessary packages
+library(adegenet)
+library(vcfR)
+library("radiator") # Conversion from vcf to a lot of other formats
+library("dplyr")
+library("hierfstat")
+library("ggplot2") #For plotting
+library("reshape2") #For plotting
+library("plyr")
+library("cowplot") #For plotting manuscript figs
+library(PCAviz)  #Visualizing output of PCA
+library("stringr")
+library("bigsnpr") # package for Linkage Disequilibrium pruning
+```
+
+# All Neutral SNPs
+
+## Making files
+
+**Make genind object**
+
+`neutralloci.recode.vcf` contains neutral SNPs for populations PVD, GB, BIS, and NAR. Steps for generating this VCF file are located in [EecSeq_Cvirginica_dDocent.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/EecSeq_Cvirginica_dDocent.md) and [EecSeq_Cvirginica_Filtering.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/EecSeq_Cvirginica_Filtering.md). Population NIN was removed from the VCF file following steps in [EecSeq_Cvirginica_OutlierDetection.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/EecSeq_Cvirginica_OutlierDetection.md).
+
+`strata` contains population, environmental, and library information for each sample - can be accessed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/strata).
+
+```{r}
+my_vcf <- read.vcfR("neutralloci.recode.vcf")
+strata <- read.table("strata", header=TRUE)
+```
+
+```{r}
+rad.filt <- vcfR2genind(my_vcf, strata = strata, pop = c(rep("BIS", 10),rep("GB", 10),rep("NAR", 10), rep("PVD",10)))
+```
+
+```{r}
+rad.filt
+```
+
+```{r}
+#Providing population names for plotting
+pop_order <- c("BIS","GB","NAR","PVD")
+```
+
+**Read in the other info from .strata file and extract information such as locality, latitude, and longitude.**
+```{r}
+info <- as.data.frame(read.table("strata",header = T,sep = "\t",stringsAsFactors = F))
+mystrats <- as.data.frame(matrix(nrow = length(indNames(rad.filt)),ncol=10))
+colnames(mystrats) <- c("Population","Latitude","Longitude","Distance","SE","Temperature","Salinity","pH","Chlorophylla","DO")
+just.strats <- select(info,c("Population"))
+stratted.filt <- strata(rad.filt, formula= Population, combine = TRUE,just.strats)
+stratted.filt@other <- select(info, Latitude,Longitude,Distance,SE,Temperature,Salinity,pH,Chlorophylla,DO)
+```
+
+```{r}
+stratted.filt
+```
+
+**Repeat for quasi-independent set of SNPs**
+
+Steps for filtering are documented for OutFLANK in [EecSeq_Cvirginica_OutlierDetection.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/EecSeq_Cvirginica_OutlierDetection.md). However, I am repeating the steps here. 
+
+```{r}
+my_vcf <- read.vcfR("neutralloci.recode.vcf")
+
+geno <- extract.gt(my_vcf) # Character matrix containing the genotypes
+position <- getPOS(my_vcf) # Positions in bp
+chromosome <- getCHROM(my_vcf) # Chromosome information
+
+G <- matrix(NA, nrow = nrow(geno), ncol = ncol(geno))
+
+G[geno %in% c("0/0", "0|0")] <- 0
+G[geno  %in% c("0/1", "1/0", "1|0", "0|1")] <- 1
+G[geno %in% c("1/1", "1|1")] <- 2
+
+# NA should be replaced with “9” to work with the functions in the OutFLANK package
+G[is.na(G)] <- 9
+```
+
+Chromosomes need to be of class integer for this to work.
+```{r}
+# Visualizing chromosomes
+chrom_unique <- unique(chromosome)
+print(chrom_unique)
+```
+
+```{r}
+# Removing "NC_" from the chromosome name so it can be converted to an integer
+chrom_new <- chromosome%>%str_replace("NC_","")
+
+# Converting the character string into an integer
+chrom1 <- as.integer(chrom_new)
+```
+
+`chromosome` and `position` need to be sorted for imputation to work.
+
+```{r}
+chrom_sort <- sort(chrom1)
+pos_sort <- sort(position)
+```
+
+_Note: This filtering program does not allow for missing genotype values._
+
+I can either remove the missing genotype values or impute missing genotypes. I'm going to try both and see how the two methods differ during the trimming step. 
+
+### Remove missing genotypes
+
+```{r}
+# removing missing data 
+G_miss <- matrix(NA, nrow = nrow(geno), ncol = ncol(geno))
+
+G_miss[geno %in% c("0/0", "0|0")] <- 0
+G_miss[geno  %in% c("0/1", "1/0", "1|0", "0|1")] <- 1
+G_miss[geno %in% c("1/1", "1|1")] <- 2
+
+# removing missing data
+G_miss[na.omit(G_miss)]
+```
+
+```{r}
+# Converting the genotype matrix to class FBM.code256 using the matrix where missing data was removed
+G1_miss <- add_code256(big_copy(t(G_miss),type="raw"),code=bigsnpr:::CODE_012)
+```
+
+```{r}
+newpc_miss <- snp_autoSVD(G1_miss,infos.chr =chrom_sort,infos.pos = pos_sort)
+which_pruned_miss <- attr(newpc_miss, which="subset") # Indexes of remaining SNPS after pruning
+length(which_pruned_miss)
+```
+
+### Using `snp_fastImputeSimple` to impute missing genotypes
+
+This requires the genotpe matrix to be converted to class FBM.code256.
+
+> A reference class for storing and accessing up to 256 arbitrary different values using a Filebacked Big Matrix of type unsigned char.
+
+```{r}
+# Converting the genotype matrix to class FBM.code256
+G1 <- add_code256(big_copy(t(G),type="raw"),code=bigsnpr:::CODE_012)
+```
+
+The chunk below imputs missing genotypes in order for the following code to run. Fast imputation via mode, mean, sampling according to allele frequencies, or 0.
+
+Method argument: Either "random" (sampling according to allele frequencies), "mean0" (rounded mean), "mean2" (rounded mean to 2 decimal places), "mode" (most frequent call).
+
+Depending on the method I choose, the # of SNPs kept after running the following chunk changes, so I'm not sure which method to use. 
+
+```{r}
+# Imputing missing genotypes
+G_missSimple <- snp_fastImputeSimple(G1,method = "mode") # Using mode or no method call results in the same number of SNPs in the following code 
+```
+
+Truncated SVD while limiting LD.
+
+```{r}
+newpc<-snp_autoSVD(G_missSimple,infos.chr =chrom_sort,infos.pos = pos_sort)
+which_pruned <- attr(newpc, which="subset") # Indexes of remaining SNPS after pruning
+length(which_pruned)
+```
+
+Either removing missing data or imputation results in a similar number of trimmed SNPs, so I will continue forward with missing data removed.
+
+```{r}
+invisible(lapply(which_pruned_miss, write, "pruned_data.txt", append=TRUE))
+```
+
+**In terminal**
+
+```
+$ mawk '!/#/' neutralloci.recode.vcf | cut -f1,2 > totalloci
+$ NUM=(`cat totalloci | wc -l`)
+$ paste <(seq 1 $NUM) totalloci > loci.plus.index
+$ cat pruned_data.txt | parallel "grep -w ^{} loci.plus.index" | cut -f2,3> pruned_data_neutral.loci.txt
+
+$ head pruned_data_neutral.loci.txt
+
+output:
+NC_035780.1	573785
+NC_035780.1	573788
+NC_035780.1	574229
+NC_035780.1	574307
+NC_035780.1	574313
+NC_035780.1	574321
+NC_035780.1	574444
+NC_035780.1	574580
+NC_035780.1	574616
+NC_035780.1	574657
+```
+
+Create VCF file with just the pruned_data loci 
+```
+$ vcftools --vcf neutralloci.recode.vcf --recode --recode-INFO-all --positions pruned_data_neutral.loci.txt --out pruned_data_neutral
+
+output:
+fter filtering, kept 40 out of 40 Individuals
+Outputting VCF file...
+After filtering, kept 14880 out of a possible 74520 Sites
+Run Time = 3.00 seconds
+```
+
+```{r}
+my_vcf_u <- read.vcfR("pruned_data_neutral.recode.vcf")
+strata<- read.table("strata", header=TRUE)
+```
+
+```{r}
+rad.u <- vcfR2genind(my_vcf_u, strata = strata, pop = c(rep("BIS", 10),rep("GB", 10),rep("NAR", 10), rep("PVD",10)))
+```
+
+```{r}
+rad.u
+```
+
+
+```{r}
+stratted.u <- strata(rad.u, formula= Population, combine = TRUE,just.strats)
+stratted.u@other <- select(info, Latitude,Longitude, Distance,SE, Temperature,Salinity,pH,Chlorophylla,DO)
+```
+
+```{r}
+stratted.u
+```
+
+**Make hierfstat object**
+```{r}
+hf.filt <- genind2hierfstat(rad.filt, pop = c(rep("BIS", 10),rep("GB", 10),rep("NAR", 10), rep("PVD",10))) 
+```
+
+```{r}
+hf.u <- genind2hierfstat(rad.u, pop = c(rep("BIS", 10),rep("GB", 10),rep("NAR", 10), rep("PVD",10)))
+hf.u <- hf.u$hierfstat.no.imputation
+```
+
+
+## Estimating effective migration surfaces [(EEMS)](https://github.com/dipetkov/eems)
+
+The program `runeems_snps` implements the EEMS method for analyzing spatial population structure. This version uses the pairwise genetic dissimilarity matrix computed from SNP data.
+
+Here is the code used to run `runeems_snps` in both RStudio and command-line. Detailed steps for running this program can be accessed [here](https://github.com/dipetkov/eems/tree/master/runeems_snps). Input files are created in RStudio or manually (see below) and saved to the directory where `runeems_snps` will be run. The program is then run in the command-line. The outputs are then plotted in RStudio. 
+
+`runeems_snps` requires three data input files that have the same file name but different extension. The description below assumes that datapath is the full path + the file name (but without the extension).
+
+__1. datapath.diffs__
+
+`datapath.diffs` is the matrix of average pairwise genetic dissimilarities. This can be computed with bed2diffs from genetic data in plink binary format.
+
+The dissimilarity matrix is nonnegative, symmetric, with 0s on the main diagonal. These conditions are necessary but not sufficient for diffs to be a valid dissimilarity matrix. Mathematically, diffs should be conditionally negative definite.
+
+**Steps for generating `datapath.diffs` are completed in RStudio.**
+```{r}
+# V1 methtod to get diffs matrix, preferred
+bed2diffs_v1 <- function(Geno) {
+  nIndiv <- nrow(Geno)
+  nSites <- ncol(Geno)
+  Diffs <- matrix(0, nIndiv, nIndiv)
+  
+  for (i in seq(nIndiv - 1)) {
+    for (j in seq(i + 1, nIndiv)) {
+      x <- Geno[i, ]
+      y <- Geno[j, ]
+      Diffs[i, j] <- mean((x - y)^2, na.rm = TRUE)
+      Diffs[j, i] <- Diffs[i, j]
+    }
+  }
+  Diffs
+}
+```
+
+```{r}
+# V2 method to get .diffs matrix, only if V1 doesn't work
+bed2diffs_v2 <- function(Geno) {
+  nIndiv <- nrow(Geno)
+  nSites <- ncol(Geno)
+  Miss <- is.na(Geno)
+  ## Impute NAs with the column means (= twice the allele frequencies)
+  Mean <- matrix(colMeans(Geno, na.rm = TRUE), ## a row of means
+                 nrow = nIndiv, ncol = nSites, byrow = TRUE) ## a matrix with nIndiv identical rows of means
+  Mean[Miss == 0] <- 0 ## Set the means that correspond to observed genotypes to 0
+  Geno[Miss == 1] <- 0 ## Set the missing genotypes to 0 (used to be NA) 
+  Geno <- Geno + Mean
+  ## Compute similarities
+  Sim <- Geno %*% t(Geno) / nSites
+  SelfSim <- diag(Sim) ## self-similarities
+  vector1s <- rep(1, nIndiv) ## vector of 1s
+  ## This chunk generates a `diffs` matrix
+  Diffs <- SelfSim %*% t(vector1s) + vector1s %*% t(SelfSim) - 2 * Sim
+  Diffs
+}
+```
+
+```{r}
+geno <- stratted.filt@tab
+```
+
+```{r}
+# Get rid of non-biallelic loci
+multi.loci <- names(which(stratted.filt@loc.n.all != 2))
+multi.cols <- which(grepl(paste0("^", multi.loci, "\\.\\d+$", collapse = "|"), colnames(geno)))
+if (length(multi.cols)) geno <- geno[, - multi.cols]
+nloci <- dim(geno)[2] / 2
+dim(geno)
+```
+
+```{r}
+stopifnot(identical(stratted.filt@type, 'codom'))
+```
+
+```{r}
+# bed2diffs functions  
+diffs.v1 <- bed2diffs_v1(geno)
+diffs.v2 <- bed2diffs_v2(geno)
+# Round to 6 digits
+diffs.v1 <- round(diffs.v1, digits = 6)
+diffs.v2 <- round(diffs.v2, digits = 6)
+```
+
+**Check that the dissimilarity matrix has one positive eigenvalue and nIndiv-1 negative eigenvalues, as required by a full-rank Euclidean distance matrix. If the V1 method does not make a Euclidean matrix, you must use V2.**
+
+```{r}
+tail(sort(round(eigen(diffs.v1)$values, digits = 2)))
+```
+
+```{r}
+tail(sort(round(eigen(diffs.v2)$values, digits = 2)))
+```
+
+```{r}
+# Set suffix for EEMS input files
+suf <- "neutraldata-filt"
+```
+
+```{r}
+# This saves the file to directory 
+write.table(diffs.v1, paste(suf,".v1.diffs",sep=""), 
+            col.names = FALSE, row.names = FALSE, quote = FALSE)
+```
+
+
+__2. datapath.coord__
+
+`datapath.coord` are the sample coordinates, two coordinates per sample, one sample per line. The sampling locations should be given in the same order as the rows and columns of the dissimilarity matrix.
+
+**Steps for generating `datapath.coord` are completed in RStudio.**
+```{r}
+## Get gps coordinates from previously created info matrix
+xOR.info <- dplyr::filter(info)
+gps_matrix <- select(xOR.info,c("Longitude","Latitude"))
+```
+
+```{r}
+#write .coord file
+write.table(gps_matrix, paste(suf,".v1.coord",sep=""),col.names = FALSE, row.names = FALSE,quote = FALSE)
+```
+
+__3. datapath.outer__
+
+`datapath.outer` are the habitat coordinates, as a sequence of vertices that form a closed polygon. The habitat vertices should be listed counterclockwise and the first vertex should also be the last vertex, so that the outline is a closed ring. Otherwise, EEMS attempts to "correct" the polygon and prints a warning message.
+
+**`datapath.outer` is created manually in Excel,based on site coordinates gathered from Google Maps, copied into terminal using `nano`, and saved as the file with the appropriate extension.** 
+
+
+**`runeems_snps` is then run in command-line following the steps documented in [NB_EEMS_OutlierHap.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/EEMS/NB_EEMS_OutlierHap.md)  
+
+**Back in RStudio to plot `runeems_snps` outputs**
+
+```{r}
+# Install rEEMSplots
+library(rEEMSplots)
+```
+
+```{r} 
+# Plotting EEMS after running runeems_snps
+path = "./NB_EEMS_Neutral/"
+dirs = c(paste0(path,"neutraldata-D200-chain1"), paste0(path,"neutraldata-D300-chain1"), paste0(path,"neutraldata-D600-chain1"))
+```
+
+```{r}
+eems.plots(mcmcpath = c(paste0(path,"./neutraldata-D200-chain1"), paste0(path,"neutraldata-D300-chain1"), paste0(path,"neutraldata-D600-chain1")), plotpath = paste0(path,"neutraldata-All-plots"),
+           longlat = T,add.grid=F,add.outline = T,add.demes = T,
+           projection.in = "+proj=longlat +datum=WGS84",projection.out = "+proj=merc +datum=WGS84",
+           add.map = T,add.abline = T, add.r.squared = T)
+```
+
+The plots are saved to the same directory where `runeems_snps` was run. 
+
+## Pairwise Fst
+
+```{r}
+fst.mat <- pairwise.WCfst(hf.filt)
+```
+
+```{r}
+gindF.fst.mat.triN <- as.matrix(fst.mat)
+colnames(gindF.fst.mat.triN) <- pop_order
+rownames(gindF.fst.mat.triN) <- pop_order
+```
+
+```{r}
+meltedN <- melt(gindF.fst.mat.triN, na.rm =TRUE)
+round(gindF.fst.mat.triN,4)
+```
+
+```{r}
+summary(meltedN$value)
+```
+
+```{r}
+#Plotting Pairwise fst
+neutral <- ggplot(data = meltedN, aes(Var2, Var1, fill = value))+ geom_tile(color = "white")+ 
+  scale_fill_gradient(low = "white", high = "chocolate1", name="FST")  +
+  ggtitle(expression(atop("Pairwise FST, WC (1984) Neutral SNPs", atop(italic("N = 40, L = 74,520"), ""))))+
+  labs( x = "Sampling Site", y = "Sampling Site") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),axis.text.y = element_text(size = 12)) + 
+  theme(axis.title = element_text(size = 12),legend.text = element_text(size =14), legend.title = element_text(size =14)) +
+  theme(plot.title = element_text(size = 14)) +
+coord_fixed()
+neutral
+```
+
+## Genetic diversity (observed and expected heterozygosity)
+
+```{r}
+comb <- summary(stratted.filt)
+names(comb)
+```
+
+```{r}
+plot(comb$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+```
+
+
+```{r}
+plot(comb$Hobs,comb$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+```
+
+
+```{r}
+bartlett.test(list(comb$Hexp, comb$Hobs)) # a test : H0: Hexp = Hobs
+```
+
+**_Significant difference between Observed and expected heterzygosity_**.  
+
+```{r}
+basicstat <- basic.stats(hf.filt, diploid = TRUE, digits = 3)
+```
+
+```{r}
+as.data.frame(basicstat$overall)
+```
+
+```{r}
+# get bootstrap confidence values for Fis
+boot <- boot.ppfis(hf.filt,nboot = 1000)
+boot5 <- boot.ppfis(hf.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+# add latitude for each population
+latitude = c(41.545, 41.654, 41.505, 41.816)
+```
+
+```{r}
+# add longitude for each population
+longitude = c(-71.431, -71.445, -71.453, -71.391)
+```
+
+```{r}
+# add distance for each population
+distance = c(4.76, 0.47, 15.41, 1.49)
+```
+
+```{r}
+# add sewage effluent for each population
+sewage = c(8.82, 14.60, 2.03, 59.86)
+```
+
+```{r}
+# add temperature for each population
+temperature = c(23, 24, 25, 23)
+```
+
+```{r}
+# add salinity for each population
+salinity = c(30, 28, 18, 25)
+```
+
+```{r}
+# add pH for each population
+pH = c(7.9, 7.4, 7.6, 7.4)
+```
+
+```{r}
+# add Chlorophylla for each population
+Chlor_a = c(4.9, 18.8, 4.6, 8.1)
+```
+
+```{r}
+# add DO for each population
+DO = c(8.2, 5.7, 7, 4.9)
+```
+
+```{r}
+# combine all pop statistics
+colnames(basicstat$Ho) <- pop_order
+Ho <- colMeans(basicstat$Ho,na.rm = T)
+He <- colMeans(basicstat$Hs,na.rm = T)
+Fis<- boot5$fis.ci$ll
+y <- cbind(pop_order,Ho,He,Fis,boot$fis.ci,latitude, longitude, distance,sewage, temperature, salinity, pH, Chlor_a, DO)
+y
+```
+
+```{r}
+summary(He)
+```
+
+```{r}
+summary(Fis)
+```
+
+```{r}
+# Plot He vs Latitude
+R2 = round(summary(lm(y$He ~ y$latitude))$r.squared, 4)             
+ggplot(y, aes(x = latitude, y = He)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) +
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Latitude, Neutral SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R2), x=41.55, y=0.2635, parse=T) +
+scale_x_continuous()
+```
+
+```{r}
+# Plot Ho vs Latitude
+R2 = round(summary(lm(y$Ho ~ y$latitude))$r.squared, 4)             
+ggplot(y, aes(x = latitude, y = Ho)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Latitude, Neutral SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R2), x=41.55, y=0.2635, parse=T) +
+scale_x_continuous()
+```
+
+```{r}
+#Plot He vs Longitude
+R3 = round(summary(lm(y$He ~ y$longitude))$r.squared, 4)             
+ggplot(y, aes(x = longitude, y = He)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) +
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Longitude, Neutral SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R3), x=-71.45, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Longitude
+R3 = round(summary(lm(y$Ho ~ y$longitude))$r.squared, 4)             
+ggplot(y, aes(x = longitude, y = Ho)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) +
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Longitude, Neutral SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R3), x=-71.45, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Distance from sewage outflow 
+R4 = round(summary(lm(y$He ~ y$distance))$r.squared, 4)             
+ggplot(y, aes(x = distance, y = He)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Distance, Neutral SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R4), x=2, y=0.2685, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Distance from sewage outflow 
+R4 = round(summary(lm(y$Ho ~ y$distance))$r.squared, 4)             
+ggplot(y, aes(x = distance, y = Ho)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Distance, Neutral SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R4), x=2, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Sewage Effluent 
+R4 = round(summary(lm(y$He ~ y$sewage))$r.squared, 4)             
+ggplot(y, aes(x = sewage, y = He)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Sewage Effluent, Neutral SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R4), x=20, y=0.265, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Sewage Effluent 
+R4 = round(summary(lm(y$Ho ~ y$sewage))$r.squared, 4)             
+ggplot(y, aes(x = sewage, y = Ho)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Sewage Effluent, Neutral SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R4), x=20, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Temperature 
+R4 = round(summary(lm(y$He ~ y$temperature))$r.squared, 4)             
+ggplot(y, aes(x = temperature, y = He)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) +
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Temperature, Neutral SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R4), x=23.25, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Temperature 
+R4 = round(summary(lm(y$Ho ~ y$temperature))$r.squared, 4)             
+ggplot(y, aes(x = temperature, y = Ho)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Temperature, Neutral SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R4), x=23.25, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Salinity 
+R4 = round(summary(lm(y$He ~ y$salinity))$r.squared, 4)             
+ggplot(y, aes(x = salinity, y = He)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Salinity, Neutral SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R4), x=23.25, y=0.2675, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Salinity 
+R4 = round(summary(lm(y$Ho ~ y$salinity))$r.squared, 4)             
+ggplot(y, aes(x = salinity, y = Ho)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Salinity, Neutral SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R4), x=23.25, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs pH
+R4 = round(summary(lm(y$He ~ y$pH))$r.squared, 4)             
+ggplot(y, aes(x = pH, y = He)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) +
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs pH, Neutral SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R4), x=7.45, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs pH
+R4 = round(summary(lm(y$Ho ~ y$pH))$r.squared, 4)             
+ggplot(y, aes(x = pH, y = Ho)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs pH, Neutral SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R4), x=7.45, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Chlorophyll a 
+R4 = round(summary(lm(y$He ~ y$Chlor_a))$r.squared, 4)             
+ggplot(y, aes(x = Chlor_a, y = He)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Chlorophyll a, Neutral SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R4), x=6, y=0.2665, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Chlorophyll a 
+R4 = round(summary(lm(y$Ho ~ y$Chlor_a))$r.squared, 4)             
+ggplot(y, aes(x = Chlor_a, y = Ho)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Chlorophyll a, Neutral SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R4), x=6, y=0.2665, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Dissolved Oxygen 
+R4 = round(summary(lm(y$He ~ y$DO))$r.squared, 4)             
+ggplot(y, aes(x = DO, y = He)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Dissolved Oxygen, Neutral SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R4), x=5.5, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Dissolved Oxygen 
+R4 = round(summary(lm(y$Ho ~ y$DO))$r.squared, 4)             
+ggplot(y, aes(x = DO, y = Ho)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Dissolved Oxygen, Neutral SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R4), x=5.5, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+
+## PCA 
+
+```{r}
+X <- tab(stratted.u, freq = TRUE, NA.method = "mean")
+pca1 <- dudi.pca(X, scale = FALSE, scannf = FALSE, nf = 3)
+barplot(pca1$eig[1:50], main = "PCA eigenvalues", col = heat.colors(50))
+s.class(pca1$li, pop(stratted.filt))
+title("PCA of neutral SNPs\naxes 1-2")
+add.scatter.eig(pca1$eig[1:20], 3,1,2)
+col <- funky(15) 
+s.class(pca1$li, pop(stratted.filt),xax=1,yax=2, col=col, axesell=FALSE, cstar=0, cpoint=3, grid=FALSE)
+```
+
+
+## Discriminant Analysis of Principal Components (DAPC)
+
+The first line of the code block below is interactive. In the console, it will tell you:  
+1. Choose the number PCs to retain (>=1): 
+    I picked 1 
+2. Choose the number discriminant functions to retain (>=1):
+    I picked 2
+
+```{r}
+grp <- find.clusters(stratted.u, n.pca = 1, choose.n.clust = FALSE)
+table(pop(stratted.u), grp$grp)
+table.value(table(pop(stratted.u), grp$grp), col.lab=paste("inf", 1:2), row.lab=paste("ori", 1:4))
+```
+
+Again, the first line of the code block below is interactive. In the console, it will tell you:  
+1. Choose the number PCs to retain (>=1): 
+    I picked 1 
+2. Choose the number discriminant functions to retain (>=1):
+    I picked 1
+
+```{r}
+dapc1 <- dapc(stratted.u, grp$grp, n.pca = 1, n.da= 1)
+scatter(dapc1,col=col,bg="white", solid=1)
+```
+
+Again, the first line of the code block below is interactive. In the console, it will tell you:  
+1. Choose the number PCs to retain (>=1): 
+    I picked 1 
+2. Choose the number discriminant functions to retain (>=1):
+    I picked 1
+
+```{r}
+contrib <- loadingplot(dapc1$var.contr, axis=1, thres=.01, lab.jitter=1)
+contrib
+setPop(rad.filt) <- ~Library
+dapc1 <- dapc(stratted.u, pop(stratted.u), n.pca = 1, n.da = 1)
+contrib <- loadingplot(dapc1$var.contr, axis=1, thres=.05, lab.jitter=1)
+```
+
+```{r}
+#Structure Like
+compoplot(dapc1, posi="bottomright",txt.leg=paste("Cluster", 1:4), lab="", ncol=1, xlab="individuals")
+temp <- which(apply(dapc1$posterior,1, function(e) all(e<0.9)))
+compoplot(dapc1, subset=temp, posi="bottomright", txt.leg=paste("Cluster", 1:4), ncol=2)
+```
+
+
+### PCAviz
+
+```{r}
+NA.afDraw<- function(ind){
+  ind.mat <- ind@tab
+  new.mat <- ind.mat
+  af = colSums(ind.mat[,seq(1,ncol(ind.mat)-1,2)],na.rm = TRUE)/
+      (2*apply(ind.mat[,seq(1,ncol(ind.mat)-1,2)],2,function(x) sum(!is.na(x))))
+  af.Draw <- function(geno, af){
+     new <- function(geno,af){
+        if(is.na(geno)){
+        newA = rbinom(1,2,af)
+        }
+        else {newA <- geno}
+        return(newA)
+   }
+  new.row <- mapply(geno,af,FUN = new)
+  return(new.row)}
+  
+  new.mat[,seq(1,ncol(ind.mat)-1,2)] <- t(apply(ind.mat[,seq(1,ncol(ind.mat)-1,2)],1,af.Draw,af))
+  new.mat[,seq(2,ncol(ind.mat),2)] <- 2-new.mat[,seq(1,ncol(ind.mat)-1,2)]
+  new.ind <- ind
+  new.ind@tab <- new.mat
+  return(new.ind)
+}
+```
+
+```{r}
+u.na <- NA.afDraw(stratted.u)
+```
+
+```{r}
+pca <- dudi.pca(u.na,center=TRUE,scale=TRUE,scannf = F, nf = 30)
+```
+
+```{r}
+col18 <- funky(length(unique(u.na@strata$Population)))
+#Colors that match the neutral Structure results
+col6 <-  c("firebrick","dodgerblue","midnightblue","salmon")
+par(mfrow=c(2,2))
+s.class(pca$li, strata(u.na)$Population,xax=1,yax=2, 
+        sub = "neutralloci,PC 1-2, 40 individuals, 14,880 loci, maf 5.0%",
+        possub = "topleft",col=transp(col6,.6),axesell=FALSE,
+        cstar=0, cpoint=3, grid=FALSE, cellipse = 0)
+s.class(pca$li, strata(u.na)$Population,xax=1,yax=3, 
+        sub = "neutralloci,PC 1-3, 40 individuals, 14,880 loci, maf 5.0%",
+        possub = "topleft",col=transp(col6,.6),axesell=FALSE,
+        cstar=0, cpoint=3, grid=FALSE, cellipse = 0)
+s.class(pca$li, strata(u.na)$Population,xax=1,yax=4, 
+        sub = "neutralloci,PC 1-4, 40 individuals, 14,880 loci, maf 5.0%",
+        possub = "topleft",col=transp(col6,.6),axesell=FALSE,
+        cstar=0, cpoint=3, grid=FALSE, cellipse = 0)
+s.class(pca$li, strata(u.na)$Population,xax=1,yax=5, 
+        sub = "neutralloci,PC 1-5, 40 individuals, 14,880 loci, maf 5.0%",
+        possub = "topleft",col=transp(col6,.6),axesell=FALSE,
+        cstar=0, cpoint=3, grid=FALSE, cellipse = 0)
+```
+
+```{r}
+s.label(pca$li, xax=1,yax=5, 
+        sub = "neutralloci,PC 1-2, 40 individuals, 14,880 loci, maf 5.0%",
+        possub = "topleft")
+```
+
+
+```{r}
+eig.perc <- 100*pca$eig/sum(pca$eig)
+head(eig.perc)
+```
+
+```{r}
+li <-pca$li
+c1 <- pca$c1
+#Create dataframe of info like latitude and population for each individual
+info_mat <- as.data.frame(cbind(u.na@strata, u.na@other$Latitude, u.na@other$Longitude, u.na@other$Distance, u.na@other$Temperature, u.na@other$Salinity, u.na@other$pH, u.na@other$Chlorophylla, u.na@other$DO))
+colnames(info_mat) <- c("Population","Latitude", "Longitude", "Distance","Temperature","Salinity","pH","Chlorophylla","DO")
+colnames(c1) <- colnames(li)
+#create pcaviz object
+pviz <- pcaviz(x=li,rotation=c1,dat=info_mat)
+```
+
+```{r}
+p = list(size=2) 
+plot(pviz,color = "Distance", draw.points = T, group.summary.labels = F, draw.pc.axes = T, geom.point.params = p)
+```
+
+```{r}
+# Plot against distance 
+p = list(size=6)
+plot(pviz, coords = c("Axis1","Distance"),
+     show.legend = T,color = "Population",colors = col18,
+     draw.points =T,group.summary.labels = F,geom.point.params= list(size = 6, alpha = 0.9),geom.point.summary.params = list(size =6,alpha = 0.4))
+```
+
+```{r}
+plot(pviz,coords = c("Axis1","Axis2","Axis3","Axis4","Axis5","Distance"),group = NULL,color= "Population",colors = col18,draw.points = T,scale.pc.axes = 0.6, show.legend=F)
+```
+
+```{r}
+p = list(size=6)
+A2 <- plot(pviz,coords = c("Axis2","Distance"),group="Population",
+     show.legend = F,color = "Population",colors = col6,draw.points =T,
+     group.summary.labels = F,draw.linear.fit = F, coord_fixed=T)
+A3 <- plot(pviz,coords = c("Axis3","Distance"),group="Population",
+     show.legend = F,color = "Population",colors = col6,
+     draw.points =T,group.summary.labels = F,draw.linear.fit = F)
+A4 <- plot(pviz,coords = c("Axis4","Distance"),group="Population",
+     show.legend = F,color = "Population",colors = col6,
+     draw.points =T,group.summary.labels = F,draw.linear.fit = F)
+A5 <- plot(pviz,coords = c("Axis5","Distance"),group="Population",
+     show.legend = T,color = "Population",colors = col6,
+     draw.points =T,group.summary.labels = F,draw.linear.fit = F)
+plot_grid(A2,A3,A4,A5, labels = c('A','B','C','D'))
+```
+
+
+
+# Neutral Genic SNPs
+
+****
+
+## Making files
+
+**Make genind object**
+
+`neutralgene.recode.vcf` contains neutral SNPs from genic regions for populations PVD, GB, BIS, and NAR. Steps for generating this VCF file are located in [EecSeq_Cvirginica_NeutralLoci.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/NonHaplotigMasked_Genome/Neutral_SNPs/EecSeq_Cvirginica_NeutralLoci.md).
+
+Population NIN was removed from the VCF file following steps in [EecSeq_Cvirginica_OutlierDetection.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/EecSeq_Cvirginica_OutlierDetection.md).
+
+`strata` contains population, environmental, and library information for each sample - can be accessed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/strata).
+
+```{r}
+my_vcf_gene <- read.vcfR("neutralgene.recode.vcf")
+strata <- read.table("strata", header=TRUE)
+```
+
+```{r}
+rad.filt_gene <- vcfR2genind(my_vcf_gene, strata = strata, pop = c(rep("BIS", 10),rep("GB", 10),rep("NAR", 10), rep("PVD",10)))
+```
+
+```{r}
+rad.filt_gene
+```
+
+```{r}
+#Providing population names for plotting
+pop_order <- c("BIS","GB","NAR","PVD")
+```
+
+**Read in the other info from .strata file and extract information such as locality, latitude, and longitude.**
+```{r}
+info <- as.data.frame(read.table("strata",header = T,sep = "\t",stringsAsFactors = F))
+mystrats_gene <- as.data.frame(matrix(nrow = length(indNames(rad.filt_gene)),ncol=10))
+colnames(mystrats_gene) <- c("Population","Latitude","Longitude","Distance","Temperature","SE","Salinity","pH","Chlorophylla","DO")
+just.strats <- select(info,c("Population"))
+stratted.filt_gene <- strata(rad.filt_gene, formula= Population, combine = TRUE,just.strats)
+stratted.filt_gene@other <- select(info, Latitude,Longitude,Distance,SE,Temperature,Salinity,pH,Chlorophylla,DO)
+```
+
+```{r}
+stratted.filt_gene
+```
+
+**Repeat for quasi-independent set of SNPs**
+
+Steps for filtering are documented for OutFLANK in [EecSeq_Cvirginica_OutlierDetection.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/EecSeq_Cvirginica_OutlierDetection.md). However, I am repeating the steps here. 
+
+```{r}
+my_vcf_gene <- read.vcfR("neutralgene.recode.vcf")
+
+geno_gene <- extract.gt(my_vcf_gene) # Character matrix containing the genotypes
+position_gene <- getPOS(my_vcf_gene) # Positions in bp
+chromosome_gene <- getCHROM(my_vcf_gene) # Chromosome information
+
+G_gene <- matrix(NA, nrow = nrow(geno_gene), ncol = ncol(geno_gene))
+
+G_gene[geno_gene %in% c("0/0", "0|0")] <- 0
+G_gene[geno_gene  %in% c("0/1", "1/0", "1|0", "0|1")] <- 1
+G_gene[geno_gene %in% c("1/1", "1|1")] <- 2
+
+# NA should be replaced with “9” 
+G_gene[is.na(G_gene)] <- 9
+```
+
+
+Chromosomes need to be of class integer for this to work.
+```{r}
+# Visualizing chromosomes
+chrom_unique_gene <- unique(chromosome_gene)
+print(chrom_unique_gene)
+```
+
+```{r}
+# Removing "NC_" from the chromosome name so it can be converted to an integer
+chrom_new_gene <- chromosome_gene%>%str_replace("NC_","")
+
+# Converting the character string into an integer
+chrom1_gene <- as.integer(chrom_new_gene)
+```
+
+`chromosome` and `position` need to be sorted for imputation to work.
+
+```{r}
+chrom_sort_gene <- sort(chrom1_gene)
+pos_sort_gene <- sort(position_gene)
+```
+
+_Note: This filtering program does not allow for missing genotype values._
+
+### Remove missing genotypes
+
+```{r}
+# removing missing data 
+G_gene_miss <- matrix(NA, nrow = nrow(geno_gene), ncol = ncol(geno_gene))
+
+G_gene_miss[geno_gene %in% c("0/0", "0|0")] <- 0
+G_gene_miss[geno_gene  %in% c("0/1", "1/0", "1|0", "0|1")] <- 1
+G_gene_miss[geno_gene %in% c("1/1", "1|1")] <- 2
+
+# removing missing data
+G_gene_miss[na.omit(G_gene_miss)]
+```
+
+
+```{r}
+# Converting the genotype matrix to class FBM.code256 using the matrix where missing data was removed
+G1_gene_miss <- add_code256(big_copy(t(G_gene_miss),type="raw"),code=bigsnpr:::CODE_012)
+```
+
+```{r}
+newpc_gene_miss <- snp_autoSVD(G1_gene_miss,infos.chr =chrom_sort_gene,infos.pos = pos_sort_gene)
+which_pruned_gene_miss <- attr(newpc_gene_miss, which="subset") # Indexes of remaining SNPS after pruning
+length(which_pruned_gene_miss)
+```
+
+
+```{r}
+invisible(lapply(which_pruned_gene_miss, write, "pruned_data_gene.txt", append=TRUE))
+```
+
+
+**In terminal**
+
+```
+$ mawk '!/#/' neutralexon.recode.vcf | cut -f1,2 > totallociexon
+$ NUM=(`cat totallociexon | wc -l`)
+$ paste <(seq 1 $NUM) totallociexon > lociexon.plus.index
+$ cat pruned_data_exon.txt | parallel "grep -w ^{} lociexon.plus.index" | cut -f2,3> pruned_data_exon.loci.txt
+
+$ head pruned_data_exon.loci.txt
+
+output:
+NC_035780.1	573785
+NC_035780.1	573788
+NC_035780.1	574229
+NC_035780.1	574241
+NC_035780.1	574307
+NC_035780.1	574313
+NC_035780.1	574568
+NC_035780.1	574580
+NC_035780.1	574616
+NC_035780.1	620575
+```
+
+Create VCF file with just the pruned_data loci 
+```
+$ vcftools --vcf neutralexon.recode.vcf --recode --recode-INFO-all --positions pruned_data_exon.loci.txt --out pruned_data_exon
+
+output:
+After filtering, kept 40 out of 40 Individuals
+Outputting VCF file...
+After filtering, kept 11377 out of a possible 50238 Sites
+Run Time = 2.00 seconds
+```
+
+```{r}
+my_vcf_u_gene <- read.vcfR("pruned_data_gene.recode.vcf")
+strata <- read.table("strata", header=TRUE)
+```
+
+```{r}
+rad.u_gene <- vcfR2genind(my_vcf_u_gene, strata = strata, pop = c(rep("BIS", 10),rep("GB", 10),rep("NAR", 10), rep("PVD",10)))
+```
+
+```{r}
+rad.u_gene
+```
+
+
+```{r}
+stratted.u_gene <- strata(rad.u_gene, formula= Population, combine = TRUE,just.strats)
+stratted.u_gene@other <- select(info, Latitude,Longitude, Distance, SE,  Temperature,Salinity,pH,Chlorophylla,DO)
+```
+
+```{r}
+stratted.u_gene
+```
+
+**Make hierfstat object**
+```{r}
+hf.filt_gene <- genind2hierfstat(rad.filt_gene, pop = c(rep("BIS", 10),rep("GB", 10),rep("NAR", 10), rep("PVD",10))) 
+```
+
+```{r}
+hf.u_gene <- genind2hierfstat(rad.u_gene, pop = c(rep("BIS", 10),rep("GB", 10),rep("NAR", 10), rep("PVD",10)))
+hf.u_gene <- hf.u_gene$hierfstat.no.imputation
+```
+
+## Estimating effective migration surfaces [(EEMS)](https://github.com/dipetkov/eems)
+
+__1. datapath.diffs__
+
+**Steps for generating `datapath.diffs` are completed in RStudio.**
+```{r}
+# V1 methtod to get diffs matrix, preferred
+bed2diffs_v1 <- function(Geno) {
+  nIndiv <- nrow(Geno)
+  nSites <- ncol(Geno)
+  Diffs <- matrix(0, nIndiv, nIndiv)
+  
+  for (i in seq(nIndiv - 1)) {
+    for (j in seq(i + 1, nIndiv)) {
+      x <- Geno[i, ]
+      y <- Geno[j, ]
+      Diffs[i, j] <- mean((x - y)^2, na.rm = TRUE)
+      Diffs[j, i] <- Diffs[i, j]
+    }
+  }
+  Diffs
+}
+```
+
+```{r}
+# V2 method to get .diffs matrix, only if V1 doesn't work
+bed2diffs_v2 <- function(Geno) {
+  nIndiv <- nrow(Geno)
+  nSites <- ncol(Geno)
+  Miss <- is.na(Geno)
+  ## Impute NAs with the column means (= twice the allele frequencies)
+  Mean <- matrix(colMeans(Geno, na.rm = TRUE), ## a row of means
+                 nrow = nIndiv, ncol = nSites, byrow = TRUE) ## a matrix with nIndiv identical rows of means
+  Mean[Miss == 0] <- 0 ## Set the means that correspond to observed genotypes to 0
+  Geno[Miss == 1] <- 0 ## Set the missing genotypes to 0 (used to be NA) 
+  Geno <- Geno + Mean
+  ## Compute similarities
+  Sim <- Geno %*% t(Geno) / nSites
+  SelfSim <- diag(Sim) ## self-similarities
+  vector1s <- rep(1, nIndiv) ## vector of 1s
+  ## This chunk generates a `diffs` matrix
+  Diffs <- SelfSim %*% t(vector1s) + vector1s %*% t(SelfSim) - 2 * Sim
+  Diffs
+}
+```
+
+```{r}
+geno_gene <- stratted.filt_gene@tab
+```
+
+```{r}
+# Get rid of non-biallelic loci
+multi.loci_gene <- names(which(stratted.filt_gene@loc.n.all != 2))
+multi.cols_gene <- which(grepl(paste0("^", multi.loci_gene, "\\.\\d+$", collapse = "|"), colnames(geno_gene)))
+if (length(multi.cols_gene)) geno_gene <- geno_gene[, - multi.cols_gene]
+nloci_gene <- dim(geno_gene)[2] / 2
+dim(geno_gene)
+```
+
+```{r}
+stopifnot(identical(stratted.filt_gene@type, 'codom'))
+```
+
+```{r}
+# bed2diffs functions  
+diffs.v1_gene <- bed2diffs_v1(geno_gene)
+diffs.v2_gene <- bed2diffs_v2(geno_gene)
+# Round to 6 digits
+diffs.v1_gene <- round(diffs.v1_gene, digits = 6)
+diffs.v2_gene <- round(diffs.v2_gene, digits = 6)
+```
+
+**Check that the dissimilarity matrix has one positive eigenvalue and nIndiv-1 negative eigenvalues, as required by a full-rank Euclidean distance matrix. If the V1 method does not make a Euclidean matrix, you must use V2.**
+
+```{r}
+tail(sort(round(eigen(diffs.v1_gene)$values, digits = 2)))
+```
+
+```{r}
+tail(sort(round(eigen(diffs.v2_gene)$values, digits = 2)))
+```
+
+```{r}
+# Set suffix for EEMS input files
+suf_gene <- "neutralexondata-filt"
+```
+
+```{r}
+# This saves the file to directory 
+write.table(diffs.v1_gene, paste(suf_gene,".v1.diffs",sep=""), 
+            col.names = FALSE, row.names = FALSE, quote = FALSE)
+```
+
+
+__2. datapath.coord__
+
+`datapath.coord` are the sample coordinates, two coordinates per sample, one sample per line. The sampling locations should be given in the same order as the rows and columns of the dissimilarity matrix.
+
+**Steps for generating `datapath.coord` are completed in RStudio.**
+```{r}
+## Get gps coordinates from previously created info matrix
+xOR.info <- dplyr::filter(info)
+gps_matrix <- select(xOR.info,c("Longitude","Latitude"))
+```
+
+```{r}
+#write .coord file
+write.table(gps_matrix, paste(suf_gene,".v1.coord",sep=""),col.names = FALSE, row.names = FALSE,quote = FALSE)
+```
+
+__3. datapath.outer__
+
+`datapath.outer` are the habitat coordinates, as a sequence of vertices that form a closed polygon. The habitat vertices should be listed counterclockwise and the first vertex should also be the last vertex, so that the outline is a closed ring. Otherwise, EEMS attempts to "correct" the polygon and prints a warning message.
+
+**`datapath.outer` is created manually in Excel,based on site coordinates gathered from Google Maps, copied into terminal using `nano`, and saved as the file with the appropriate extension.** 
+
+
+**`runeems_snps` is then run in command-line following the steps documented in [NB_EEMS_OutlierHap.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/EEMS/NB_EEMS_OutlierHap.md)  
+
+**Back in RStudio to plot `runeems_snps` outputs**
+
+```{r}
+# Install rEEMSplots
+library(rEEMSplots)
+```
+
+```{r} 
+# Plotting EEMS after running runeems_snps
+path = "./NB_EEMS_Neutral/"
+dirs = c(paste0(path,"neutralgenedata-D200-chain1"), paste0(path,"neutralgenedata-D300-chain1"), paste0(path,"neutralgenedata-D600-chain1"))
+```
+
+```{r}
+eems.plots(mcmcpath = c(paste0(path,"./neutralgenedata-D200-chain1"), paste0(path,"neutralgenedata-D300-chain1"), paste0(path,"neutralgenedata-D600-chain1")), plotpath = paste0(path,"neutralgenedata-All-plots"),
+           longlat = T,add.grid=F,add.outline = T,add.demes = T,
+           projection.in = "+proj=longlat +datum=WGS84",projection.out = "+proj=merc +datum=WGS84",
+           add.map = T,add.abline = T, add.r.squared = T)
+```
+
+## Pairwise Fst
+
+```{r}
+fst.mat_gene <- pairwise.WCfst(hf.filt_gene)
+```
+
+```{r}
+gindF.fst.mat.triN_gene <- as.matrix(fst.mat_gene)
+colnames(gindF.fst.mat.triN_gene) <- pop_order
+rownames(gindF.fst.mat.triN_gene) <- pop_order
+```
+
+```{r}
+meltedN_gene <- melt(gindF.fst.mat.triN_gene, na.rm =TRUE)
+round(gindF.fst.mat.triN_gene,4)
+```
+
+```{r}
+summary(meltedN_gene$value)
+```
+
+
+```{r}
+#Plotting Pairwise fst
+neutral <- ggplot(data = meltedN_gene, aes(Var2, Var1, fill = value))+ geom_tile(color = "white")+ 
+  scale_fill_gradient(low = "white", high = "red", name="FST")  +
+  ggtitle(expression(atop("Pairwise FST, WC (1984) Neutral Gene SNPs", atop(italic("N = 40, L = 66,939"), ""))))+
+  labs( x = "Sampling Site", y = "Sampling Site") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),axis.text.y = element_text(size = 13)) + 
+  theme(axis.title = element_text(size = 16),legend.text = element_text(size =15), legend.title = element_text(size =16)) +
+  theme(plot.title = element_text(size = 17)) +
+coord_fixed()
+neutral
+```
+
+## Genetic diversity (observed and expected heterozygosity)
+
+```{r}
+comb_gene <- summary(stratted.filt_gene)
+names(comb_gene)
+```
+
+```{r}
+plot(comb_gene$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+```
+
+
+```{r}
+plot(comb_gene$Hobs,comb_gene$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+```
+
+```{r}
+bartlett.test(list(comb_gene$Hexp, comb_gene$Hobs)) # a test : H0: Hexp = Hobs
+```
+
+**_Significant difference between Observed and expected heterzygosity_**.  
+
+```{r}
+basicstat_gene <- basic.stats(hf.filt_gene, diploid = TRUE, digits = 3)
+```
+
+```{r}
+as.data.frame(basicstat_gene$overall)
+```
+
+```{r}
+# get bootstrap confidence values for Fis
+boot_gene <- boot.ppfis(hf.filt_gene,nboot = 1000)
+boot5_gene <- boot.ppfis(hf.filt_gene,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+# combine all pop statistics
+colnames(basicstat_gene$Ho) <- pop_order
+Ho_gene <- colMeans(basicstat_gene$Ho,na.rm = T)
+He_gene <- colMeans(basicstat_gene$Hs,na.rm = T)
+Fis_gene <- boot5_gene$fis.ci$ll
+y_gene <- cbind(pop_order,Ho_gene,He_gene,Fis_gene,boot_gene$fis.ci,latitude, longitude, distance, sewage, temperature, salinity, pH, Chlor_a, DO)
+y_gene
+```
+
+```{r}
+summary(He_gene)
+```
+
+```{r}
+summary(Fis_gene)
+```
+
+```{r}
+# Plot He vs Latitude
+R2_gene = round(summary(lm(y_gene$He_gene ~ y_gene$latitude))$r.squared, 4)             
+ggplot(y_gene, aes(x = latitude, y = He_gene)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) +
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Latitude, Neutral Gene SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R2_gene), x=41.55, y=0.2635, parse=T) +
+scale_x_continuous()
+```
+
+```{r}
+# Plot Ho vs Latitude
+R2_gene = round(summary(lm(y_gene$Ho_gene ~ y_gene$latitude))$r.squared, 4)             
+ggplot(y_gene, aes(x = latitude, y = Ho_gene)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Latitude, Neutral Gene SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R2_gene), x=41.55, y=0.2635, parse=T) +
+scale_x_continuous()
+```
+
+```{r}
+#Plot He vs Longitude
+R3_gene = round(summary(lm(y_gene$He_gene ~ y_gene$longitude))$r.squared, 4)             
+ggplot(y_gene, aes(x = longitude, y = He_gene)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) +
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Longitude, Neutral Gene SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R3_gene), x=-71.45, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Longitude
+R3_gene = round(summary(lm(y_gene$Ho_gene ~ y_gene$longitude))$r.squared, 4)             
+ggplot(y_gene, aes(x = longitude, y = Ho_gene)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) +
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Longitude, Neutral Gene SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R3_gene), x=-71.45, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Distance from sewage outflow 
+R4_gene = round(summary(lm(y_gene$He_gene ~ y_gene$distance))$r.squared, 4)             
+ggplot(y_gene, aes(x = distance, y = He_gene)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Distance, Neutral Gene SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R4_gene), x=2, y=0.2685, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Distance from sewage outflow 
+R4_gene = round(summary(lm(y_gene$Ho_gene ~ y_gene$distance))$r.squared, 4)             
+ggplot(y_gene, aes(x = distance, y = Ho_gene)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Distance, Neutral Gene SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R4_gene), x=2, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Sewage effluent  
+R_gene = round(summary(lm(y_gene$He_gene ~ y_gene$sewage))$r.squared, 4)             
+ggplot(y_gene, aes(x = sewage, y = He_gene)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Sewage Effluent, Neutral Gene SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R_gene), x=7, y=0.265, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Sewage effluent  
+R_gene = round(summary(lm(y_gene$Ho_gene ~ y_gene$sewage))$r.squared, 4)             
+ggplot(y_gene, aes(x = sewage, y = Ho_gene)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Sewage Effluent, Neutral Gene SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R_gene), x=7, y=0.26, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Temperature 
+R5_gene = round(summary(lm(y_gene$He_gene ~ y_gene$temperature))$r.squared, 4)             
+ggplot(y_gene, aes(x = temperature, y = He_gene)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) +
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Temperature, Neutral Gene SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R5_gene), x=23.25, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Temperature 
+R5_gene = round(summary(lm(y_gene$Ho_gene ~ y_gene$temperature))$r.squared, 4)             
+ggplot(y_gene, aes(x = temperature, y = Ho_gene)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Temperature, Neutral Gene SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R5_gene), x=23.25, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Salinity 
+R6_gene = round(summary(lm(y_gene$He_gene ~ y_gene$salinity))$r.squared, 4)             
+ggplot(y_gene, aes(x = salinity, y = He_gene)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Salinity, Neutral Gene SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R6_gene), x=23.25, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Salinity 
+R6_gene = round(summary(lm(y_gene$Ho_gene ~ y_gene$salinity))$r.squared, 4)             
+ggplot(y_gene, aes(x = salinity, y = Ho_gene)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Salinity, Neutral Gene SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R6_gene), x=23.25, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs pH
+R7_gene = round(summary(lm(y_gene$He_gene ~ y_gene$pH))$r.squared, 4)             
+ggplot(y_gene, aes(x = pH, y = He_gene)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) +
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs pH, Neutral Gene SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R7_gene), x=7.45, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs pH
+R7_gene = round(summary(lm(y_gene$Ho_gene ~ y_gene$pH))$r.squared, 4)             
+ggplot(y_gene, aes(x = pH, y = Ho_gene)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs pH, Neutral Gene SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R7_gene), x=7.45, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Chlorophyll a 
+R8_gene = round(summary(lm(y_gene$He_gene ~ y_gene$Chlor_a))$r.squared, 4)             
+ggplot(y_gene, aes(x = Chlor_a, y = He_gene)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Chlorophyll a, Neutral Gene SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R8_gene), x=6, y=0.2665, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Chlorophyll a 
+R8_gene = round(summary(lm(y_gene$Ho_gene ~ y_gene$Chlor_a))$r.squared, 4)             
+ggplot(y_gene, aes(x = Chlor_a, y = Ho_gene)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Chlorophyll a, Neutral Gene SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R8_gene), x=6, y=0.2665, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Dissolved Oxygen 
+R9_gene = round(summary(lm(y_gene$He_gene ~ y_gene$DO))$r.squared, 4)             
+ggplot(y_gene, aes(x = DO, y = He_gene)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Dissolved Oxygen, Neutral Gene SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R9_gene), x=5.5, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Dissolved Oxygen 
+R9_gene = round(summary(lm(y_gene$Ho_gene ~ y_gene$DO))$r.squared, 4)             
+ggplot(y_gene, aes(x = DO, y = Ho_gene)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Dissolved Oxygen, Neutral Gene SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R9_gene), x=5.5, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+
+## PCA 
+
+```{r}
+X_gene <- tab(stratted.u_gene, freq = TRUE, NA.method = "mean")
+pca1_gene <- dudi.pca(X_gene, scale = FALSE, scannf = FALSE, nf = 3)
+barplot(pca1_gene$eig[1:50], main = "PCA eigenvalues", col = heat.colors(50))
+s.class(pca1_gene$li, pop(stratted.filt_gene))
+title("PCA of neutral gene SNPs\naxes 1-2")
+add.scatter.eig(pca1_gene$eig[1:20], 3,1,2)
+col <- funky(15) 
+s.class(pca1_gene$li, pop(stratted.filt_gene),xax=1,yax=2, col=col, axesell=FALSE, cstar=0, cpoint=3, grid=FALSE)
+```
+
+
+## Discriminant Analysis of Principal Components (DAPC)
+
+The first line of the code block below is interactive. In the console, it will tell you:  
+1. Choose the number PCs to retain (>=1): 
+    I picked 1 
+2. Choose the number discriminant functions to retain (>=1):
+    I picked 2
+
+```{r}
+grp_gene <- find.clusters(stratted.u_gene, n.pca = 1, choose.n.clust = FALSE)
+table(pop(stratted.u_gene), grp_gene$grp)
+table.value(table(pop(stratted.u_gene), grp_gene$grp), col.lab=paste("inf", 1:2), row.lab=paste("ori", 1:4))
+```
+
+Again, the first line of the code block below is interactive. In the console, it will tell you:  
+1. Choose the number PCs to retain (>=1): 
+    I picked 1 
+2. Choose the number discriminant functions to retain (>=1):
+    I picked 1
+
+```{r}
+dapc1_gene <- dapc(stratted.u_gene, grp_gene$grp, n.pca = 1, n.da= 1)
+scatter(dapc1_gene,col=col,bg="white", solid=1)
+```
+
+Again, the first line of the code block below is interactive. In the console, it will tell you:  
+1. Choose the number PCs to retain (>=1): 
+    I picked 1 
+2. Choose the number discriminant functions to retain (>=1):
+    I picked 1
+
+```{r}
+contrib_gene <- loadingplot(dapc1_gene$var.contr, axis=1, thres=.01, lab.jitter=1)
+contrib_gene
+setPop(rad.filt_gene) <- ~Library
+dapc1_gene <- dapc(stratted.u_gene, pop(stratted.u_gene), n.pca = 1, n.da = 1)
+contrib_gene <- loadingplot(dapc1_gene$var.contr, axis=1, thres=.05, lab.jitter=1)
+```
+
+```{r}
+#Structure Like
+compoplot(dapc1_gene, posi="bottomright",txt.leg=paste("Cluster", 1:4), lab="", ncol=1, xlab="individuals")
+temp_gene <- which(apply(dapc1_gene$posterior,1, function(e) all(e<0.9)))
+compoplot(dapc1_gene, subset=temp_gene, posi="bottomright", txt.leg=paste("Cluster", 1:4), ncol=2)
+```
+
+### PCAviz
+
+```{r}
+NA.afDraw<- function(ind){
+  ind.mat <- ind@tab
+  new.mat <- ind.mat
+  af = colSums(ind.mat[,seq(1,ncol(ind.mat)-1,2)],na.rm = TRUE)/
+      (2*apply(ind.mat[,seq(1,ncol(ind.mat)-1,2)],2,function(x) sum(!is.na(x))))
+  af.Draw <- function(geno, af){
+     new <- function(geno,af){
+        if(is.na(geno)){
+        newA = rbinom(1,2,af)
+        }
+        else {newA <- geno}
+        return(newA)
+   }
+  new.row <- mapply(geno,af,FUN = new)
+  return(new.row)}
+  
+  new.mat[,seq(1,ncol(ind.mat)-1,2)] <- t(apply(ind.mat[,seq(1,ncol(ind.mat)-1,2)],1,af.Draw,af))
+  new.mat[,seq(2,ncol(ind.mat),2)] <- 2-new.mat[,seq(1,ncol(ind.mat)-1,2)]
+  new.ind <- ind
+  new.ind@tab <- new.mat
+  return(new.ind)
+}
+```
+
+```{r}
+u.na_gene <- NA.afDraw(stratted.u_gene)
+```
+
+```{r}
+pca_gene <- dudi.pca(u.na_gene,center=TRUE,scale=TRUE,scannf = F, nf = 30)
+```
+
+```{r}
+col18 <- funky(length(unique(u.na_gene@strata$Population)))
+#Colors that match the neutral Structure results
+col6 <-  c("firebrick","dodgerblue","midnightblue","salmon")
+par(mfrow=c(2,2))
+s.class(pca_gene$li, strata(u.na_gene)$Population,xax=1,yax=2, 
+        sub = "neutralgeneloci,PC 1-2, 40 individuals, 11,620 loci, maf 5.0%",
+        possub = "topleft",col=transp(col6,.6),axesell=FALSE,
+        cstar=0, cpoint=3, grid=FALSE, cellipse = 0)
+s.class(pca_gene$li, strata(u.na_gene)$Population,xax=1,yax=3, 
+        sub = "neutralgeneloci,PC 1-3, 40 individuals, 11,620 loci, maf 5.0%",
+        possub = "topleft",col=transp(col6,.6),axesell=FALSE,
+        cstar=0, cpoint=3, grid=FALSE, cellipse = 0)
+s.class(pca_gene$li, strata(u.na_gene)$Population,xax=1,yax=4, 
+        sub = "neutralgeneloci,PC 1-4, 40 individuals, 11,620 loci, maf 5.0%",
+        possub = "topleft",col=transp(col6,.6),axesell=FALSE,
+        cstar=0, cpoint=3, grid=FALSE, cellipse = 0)
+s.class(pca_gene$li, strata(u.na_gene)$Population,xax=1,yax=5, 
+        sub = "neutralgeneloci,PC 1-5, 40 individuals, 11,620 loci, maf 5.0%",
+        possub = "topleft",col=transp(col6,.6),axesell=FALSE,
+        cstar=0, cpoint=3, grid=FALSE, cellipse = 0)
+```
+
+
+
+# Neutral Intergenic SNPs
+
+****
+
+## Making files
+
+**Make genind object**
+
+`neutralintergenic.recode.vcf` contains neutral SNPs from intergenic regions for populations PVD, GB, BIS, and NAR. Steps for generating this VCF file are located in [EecSeq_Cvirginica_NeutralLoci.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/NonHaplotigMasked_Genome/Neutral_SNPs/EecSeq_Cvirginica_NeutralLoci.md).
+
+Population NIN was removed from the VCF file following steps in [EecSeq_Cvirginica_OutlierDetection.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/EecSeq_Cvirginica_OutlierDetection.md).
+
+`strata` contains population, environmental, and library information for each sample - can be accessed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/strata).
+
+```{r}
+my_vcf_inter <- read.vcfR("neutralintergenic.recode.vcf")
+strata <- read.table("strata", header=TRUE)
+```
+
+```{r}
+rad.filt_inter <- vcfR2genind(my_vcf_inter, strata = strata, pop = c(rep("BIS", 10),rep("GB", 10),rep("NAR", 10), rep("PVD",10)))
+```
+
+```{r}
+rad.filt_inter
+```
+
+```{r}
+#Providing population names for plotting
+pop_order <- c("BIS","GB","NAR","PVD")
+```
+
+**Read in the other info from .strata file and extract information such as locality, latitude, and longitude.**
+```{r}
+info <- as.data.frame(read.table("strata",header = T,sep = "\t",stringsAsFactors = F))
+mystrats_inter <- as.data.frame(matrix(nrow = length(indNames(rad.filt_inter)),ncol=10))
+colnames(mystrats_inter) <- c("Population","Latitude","Longitude","Distance","Temperature","SE","Salinity","pH","Chlorophylla","DO")
+just.strats <- select(info,c("Population"))
+stratted.filt_inter <- strata(rad.filt_inter, formula= Population, combine = TRUE,just.strats)
+stratted.filt_inter@other <- select(info, Latitude,Longitude,Distance,SE,Temperature,Salinity,pH,Chlorophylla,DO)
+```
+
+```{r}
+stratted.filt_inter
+```
+
+**Repeat for quasi-independent set of SNPs**
+
+Steps for filtering are documented for OutFLANK in [EecSeq_Cvirginica_OutlierDetection.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/EecSeq_Cvirginica_OutlierDetection.md). However, I am repeating the steps here. 
+
+```{r}
+my_vcf_inter <- read.vcfR("neutralintergenic.recode.vcf")
+
+geno_inter <- extract.gt(my_vcf_inter) # Character matrix containing the genotypes
+position_inter <- getPOS(my_vcf_inter) # Positions in bp
+chromosome_inter <- getCHROM(my_vcf_inter) # Chromosome information
+
+G_inter <- matrix(NA, nrow = nrow(geno_inter), ncol = ncol(geno_inter))
+
+G_inter[geno_inter %in% c("0/0", "0|0")] <- 0
+G_inter[geno_inter  %in% c("0/1", "1/0", "1|0", "0|1")] <- 1
+G_inter[geno_inter %in% c("1/1", "1|1")] <- 2
+
+# NA should be replaced with “9”
+G_inter[is.na(G_inter)] <- 9
+```
+
+
+Chromosomes need to be of class integer for this to work.
+```{r}
+# Visualizing chromosomes
+chrom_unique_inter <- unique(chromosome_inter)
+print(chrom_unique_inter)
+```
+
+```{r}
+# Removing "NC_" from the chromosome name so it can be converted to an integer
+chrom_new_inter <- chromosome_inter%>%str_replace("NC_","")
+
+# Converting the character string into an integer
+chrom1_inter <- as.integer(chrom_new_inter)
+```
+
+`chromosome` and `position` need to be sorted for imputation to work.
+
+```{r}
+chrom_sort_inter <- sort(chrom1_inter)
+pos_sort_inter <- sort(position_inter)
+```
+
+_Note: This filtering program does not allow for missing genotype values._
+
+
+### Remove missing genotypes
+
+```{r}
+# removing missing data 
+G_inter_miss <- matrix(NA, nrow = nrow(geno_inter), ncol = ncol(geno_inter))
+
+G_inter_miss[geno_inter %in% c("0/0", "0|0")] <- 0
+G_inter_miss[geno_inter  %in% c("0/1", "1/0", "1|0", "0|1")] <- 1
+G_inter_miss[geno_inter %in% c("1/1", "1|1")] <- 2
+
+# removing missing data
+G_inter_miss[na.omit(G_inter_miss)]
+```
+
+
+```{r}
+# Converting the genotype matrix to class FBM.code256 using the matrix where missing data was removed
+G1_inter_miss <- add_code256(big_copy(t(G_inter_miss),type="raw"),code=bigsnpr:::CODE_012)
+```
+
+```{r}
+newpc_inter_miss <- snp_autoSVD(G1_inter_miss,infos.chr =chrom_sort_inter,infos.pos = pos_sort_inter, roll.size = 35) # roll.size = Radius of rolling windows to smooth log-p-values
+# maximum roll.size I could use is 35
+which_pruned_inter_miss <- attr(newpc_inter_miss, which="subset") # Indexes of remaining SNPS after pruning
+length(which_pruned_inter_miss)
+```
+
+
+```{r}
+invisible(lapply(which_pruned_inter_miss, write, "pruned_data_inter.txt", append=TRUE))
+```
+
+
+**In terminal**
+
+```
+$ mawk '!/#/' neutralintergenic.recode.vcf | cut -f1,2 > totallociinter
+$ NUM=(`cat totallociinter | wc -l`)
+$ paste <(seq 1 $NUM) totallociinter > lociinter.plus.index
+$ cat pruned_data_inter.txt | parallel "grep -w ^{} lociinter.plus.index" | cut -f2,3> pruned_data_inter.loci.txt
+
+$ head pruned_data_inter.loci.txt
+
+output:
+NC_035780.1	623558
+NC_035780.1	623903
+NC_035780.1	623906
+NC_035780.1	1490085
+NC_035780.1	1490100
+NC_035780.1	1695081
+NC_035780.1	1695087
+NC_035780.1	1756507
+NC_035780.1	1882142
+NC_035780.1	2425975
+```
+
+Create VCF file with just the pruned_data loci 
+```
+$ vcftools --vcf neutralintergenic.recode.vcf --recode --recode-INFO-all --positions pruned_data_inter.loci.txt --out pruned_data_inter
+
+output:
+After filtering, kept 40 out of 40 Individuals
+Outputting VCF file...
+After filtering, kept 2019 out of a possible 7581 Sites
+Run Time = 1.00 seconds
+```
+
+```{r}
+my_vcf_u_inter <- read.vcfR("pruned_data_inter.recode.vcf")
+strata <- read.table("strata", header=TRUE)
+```
+
+```{r}
+rad.u_inter <- vcfR2genind(my_vcf_u_inter, strata = strata, pop = c(rep("BIS", 10),rep("GB", 10),rep("NAR", 10), rep("PVD",10)))
+```
+
+```{r}
+rad.u_inter
+```
+
+
+```{r}
+stratted.u_inter <- strata(rad.u_inter, formula= Population, combine = TRUE,just.strats)
+stratted.u_inter@other <- select(info, Latitude,Longitude, Distance, SE,  Temperature,Salinity,pH,Chlorophylla,DO)
+```
+
+```{r}
+stratted.u_inter
+```
+
+**Make hierfstat object**
+```{r}
+hf.filt_inter <- genind2hierfstat(rad.filt_inter, pop = c(rep("BIS", 10),rep("GB", 10),rep("NAR", 10), rep("PVD",10))) 
+```
+
+```{r}
+hf.u_inter <- genind2hierfstat(rad.u_inter, pop = c(rep("BIS", 10),rep("GB", 10),rep("NAR", 10), rep("PVD",10)))
+hf.u_inter <- hf.u_inter$hierfstat.no.imputation
+```
+
+## Estimating effective migration surfaces [(EEMS)](https://github.com/dipetkov/eems)
+
+__1. datapath.diffs__
+
+**Steps for generating `datapath.diffs` are completed in RStudio.**
+```{r}
+# V1 methtod to get diffs matrix, preferred
+bed2diffs_v1 <- function(Geno) {
+  nIndiv <- nrow(Geno)
+  nSites <- ncol(Geno)
+  Diffs <- matrix(0, nIndiv, nIndiv)
+  
+  for (i in seq(nIndiv - 1)) {
+    for (j in seq(i + 1, nIndiv)) {
+      x <- Geno[i, ]
+      y <- Geno[j, ]
+      Diffs[i, j] <- mean((x - y)^2, na.rm = TRUE)
+      Diffs[j, i] <- Diffs[i, j]
+    }
+  }
+  Diffs
+}
+```
+
+```{r}
+# V2 method to get .diffs matrix, only if V1 doesn't work
+bed2diffs_v2 <- function(Geno) {
+  nIndiv <- nrow(Geno)
+  nSites <- ncol(Geno)
+  Miss <- is.na(Geno)
+  ## Impute NAs with the column means (= twice the allele frequencies)
+  Mean <- matrix(colMeans(Geno, na.rm = TRUE), ## a row of means
+                 nrow = nIndiv, ncol = nSites, byrow = TRUE) ## a matrix with nIndiv identical rows of means
+  Mean[Miss == 0] <- 0 ## Set the means that correspond to observed genotypes to 0
+  Geno[Miss == 1] <- 0 ## Set the missing genotypes to 0 (used to be NA) 
+  Geno <- Geno + Mean
+  ## Compute similarities
+  Sim <- Geno %*% t(Geno) / nSites
+  SelfSim <- diag(Sim) ## self-similarities
+  vector1s <- rep(1, nIndiv) ## vector of 1s
+  ## This chunk generates a `diffs` matrix
+  Diffs <- SelfSim %*% t(vector1s) + vector1s %*% t(SelfSim) - 2 * Sim
+  Diffs
+}
+```
+
+```{r}
+geno_inter <- stratted.filt_inter@tab
+```
+
+```{r}
+# Get rid of non-biallelic loci
+multi.loci_inter <- names(which(stratted.filt_inter@loc.n.all != 2))
+multi.cols_inter <- which(grepl(paste0("^", multi.loci_inter, "\\.\\d+$", collapse = "|"), colnames(geno_inter)))
+if (length(multi.cols_inter)) geno_inter <- geno_inter[, - multi.cols_inter]
+nloci_inter <- dim(geno_inter)[2] / 2
+dim(geno_inter)
+```
+
+```{r}
+stopifnot(identical(stratted.filt_inter@type, 'codom'))
+```
+
+```{r}
+# bed2diffs functions  
+diffs.v1_inter <- bed2diffs_v1(geno_inter)
+diffs.v2_inter <- bed2diffs_v2(geno_inter)
+# Round to 6 digits
+diffs.v1_inter <- round(diffs.v1_inter, digits = 6)
+diffs.v2_inter <- round(diffs.v2_inter, digits = 6)
+```
+
+**Check that the dissimilarity matrix has one positive eigenvalue and nIndiv-1 negative eigenvalues, as required by a full-rank Euclidean distance matrix. If the V1 method does not make a Euclidean matrix, you must use V2.**
+
+```{r}
+tail(sort(round(eigen(diffs.v1_inter)$values, digits = 2)))
+```
+
+```{r}
+tail(sort(round(eigen(diffs.v2_inter)$values, digits = 2)))
+```
+
+```{r}
+# Set suffix for EEMS input files
+suf_inter <- "neutralinterdata-filt"
+```
+
+```{r}
+# This saves the file to directory 
+write.table(diffs.v1_inter, paste(suf_inter,".v1.diffs",sep=""), 
+            col.names = FALSE, row.names = FALSE, quote = FALSE)
+```
+
+
+__2. datapath.coord__
+
+`datapath.coord` are the sample coordinates, two coordinates per sample, one sample per line. The sampling locations should be given in the same order as the rows and columns of the dissimilarity matrix.
+
+**Steps for generating `datapath.coord` are completed in RStudio.**
+```{r}
+## Get gps coordinates from previously created info matrix
+xOR.info <- dplyr::filter(info)
+gps_matrix <- select(xOR.info,c("Longitude","Latitude"))
+```
+
+```{r}
+#write .coord file
+write.table(gps_matrix, paste(suf_inter,".v1.coord",sep=""),col.names = FALSE, row.names = FALSE,quote = FALSE)
+```
+
+__3. datapath.outer__
+
+`datapath.outer` are the habitat coordinates, as a sequence of vertices that form a closed polygon. The habitat vertices should be listed counterclockwise and the first vertex should also be the last vertex, so that the outline is a closed ring. Otherwise, EEMS attempts to "correct" the polygon and prints a warning message.
+
+**`datapath.outer` is created manually in Excel,based on site coordinates gathered from Google Maps, copied into terminal using `nano`, and saved as the file with the appropriate extension.** 
+
+
+**`runeems_snps` is then run in command-line following the steps documented in [NB_EEMS_OutlierHap.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/EEMS/NB_EEMS_OutlierHap.md)  
+
+**Back in RStudio to plot `runeems_snps` outputs**
+
+```{r}
+# Install rEEMSplots
+library(rEEMSplots)
+```
+
+```{r} 
+# Plotting EEMS after running runeems_snps
+path = "./NB_EEMS_Neutral/"
+dirs = c(paste0(path,"neutralinterdata-D200-chain1"), paste0(path,"neutralinterdata-D300-chain1"), paste0(path,"neutralinterdata-D600-chain1"))
+```
+
+```{r}
+eems.plots(mcmcpath = c(paste0(path,"./neutralinterdata-D200-chain1"), paste0(path,"neutralinterdata-D300-chain1"), paste0(path,"neutralinterdata-D600-chain1")), plotpath = paste0(path,"neutralinterdata-All-plots"),
+           longlat = T,add.grid=F,add.outline = T,add.demes = T,
+           projection.in = "+proj=longlat +datum=WGS84",projection.out = "+proj=merc +datum=WGS84",
+           add.map = T,add.abline = T, add.r.squared = T)
+```
+
+## Pairwise Fst
+
+```{r}
+fst.mat_inter <- pairwise.WCfst(hf.filt_inter)
+```
+
+```{r}
+gindF.fst.mat.triN_inter <- as.matrix(fst.mat_inter)
+colnames(gindF.fst.mat.triN_inter) <- pop_order
+rownames(gindF.fst.mat.triN_inter) <- pop_order
+```
+
+```{r}
+meltedN_inter <- melt(gindF.fst.mat.triN_inter, na.rm =TRUE)
+round(gindF.fst.mat.triN_inter,4)
+```
+
+```{r}
+summary(meltedN_inter$value)
+```
+
+
+```{r}
+#Plotting Pairwise fst
+neutral_inter <- ggplot(data = meltedN_inter, aes(Var2, Var1, fill = value))+ geom_tile(color = "white")+ 
+  scale_fill_gradient(low = "white", high = "red", name="FST")  +
+  ggtitle(expression(atop("Pairwise FST, WC (1984) Neutral Intergenic SNPs", atop(italic("N = 40, L = 7,581"), ""))))+
+  labs( x = "Sampling Site", y = "Sampling Site") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),axis.text.y = element_text(size = 13)) + 
+  theme(axis.title = element_text(size = 16),legend.text = element_text(size =15), legend.title = element_text(size =16)) +
+  theme(plot.title = element_text(size = 17)) +
+coord_fixed()
+neutral_inter
+```
+
+## Genetic diversity (observed and expected heterozygosity)
+
+```{r}
+comb_inter <- summary(stratted.filt_inter)
+names(comb_inter)
+```
+
+```{r}
+plot(comb_inter$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+```
+
+
+```{r}
+plot(comb_inter$Hobs,comb_inter$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+```
+
+```{r}
+bartlett.test(list(comb_inter$Hexp, comb_inter$Hobs)) # a test : H0: Hexp = Hobs
+```
+
+**_Significant difference between Observed and expected heterzygosity_**.  
+
+```{r}
+basicstat_inter <- basic.stats(hf.filt_inter, diploid = TRUE, digits = 3)
+```
+
+```{r}
+as.data.frame(basicstat_inter$overall)
+```
+
+```{r}
+# get bootstrap confidence values for Fis
+boot_inter <- boot.ppfis(hf.filt_inter,nboot = 1000)
+boot5_inter <- boot.ppfis(hf.filt_inter,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+# combine all pop statistics
+colnames(basicstat_inter$Ho) <- pop_order
+Ho_inter <- colMeans(basicstat_inter$Ho,na.rm = T)
+He_inter <- colMeans(basicstat_inter$Hs,na.rm = T)
+Fis_inter <- boot5_inter$fis.ci$ll
+y_inter <- cbind(pop_order,Ho_inter,He_inter,Fis_inter,boot_inter$fis.ci,latitude, longitude, distance, sewage, temperature, salinity, pH, Chlor_a, DO)
+y_inter
+```
+
+```{r}
+summary(He_inter)
+```
+
+```{r}
+summary(Fis_inter)
+```
+
+```{r}
+# Plot He vs Latitude
+R2_inter = round(summary(lm(y_inter$He_inter ~ y_inter$latitude))$r.squared, 4)             
+ggplot(y_inter, aes(x = latitude, y = He_inter)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) +
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Latitude, Neutral Intergenic SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R2_inter), x=41.55, y=0.2635, parse=T) +
+scale_x_continuous()
+```
+
+```{r}
+# Plot Ho vs Latitude
+R2_inter = round(summary(lm(y_inter$Ho_inter ~ y_inter$latitude))$r.squared, 4)             
+ggplot(y_inter, aes(x = latitude, y = Ho_inter)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Latitude, Neutral Intergenic SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R2_inter), x=41.55, y=0.28, parse=T) +
+scale_x_continuous()
+```
+
+```{r}
+#Plot He vs Longitude
+R3_inter = round(summary(lm(y_inter$He_inter ~ y_inter$longitude))$r.squared, 4)             
+ggplot(y_inter, aes(x = longitude, y = He_inter)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) +
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Longitude, Neutral Intergenic SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R3_inter), x=-71.44, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Longitude
+R3_inter = round(summary(lm(y_inter$Ho_inter ~ y_inter$longitude))$r.squared, 4)             
+ggplot(y_inter, aes(x = longitude, y = Ho_inter)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) +
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Longitude, Neutral Integenic SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R3_inter), x=-71.44, y=0.28, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Distance from sewage outflow 
+R4_inter = round(summary(lm(y_inter$He_inter ~ y_inter$distance))$r.squared, 4)             
+ggplot(y_inter, aes(x = distance, y = He_inter)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Distance, Neutral Intergenic SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R4_inter), x=2, y=0.265, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Distance from sewage outflow 
+R4_inter = round(summary(lm(y_inter$Ho_inter ~ y_inter$distance))$r.squared, 4)             
+ggplot(y_inter, aes(x = distance, y = Ho_inter)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Distance, Neutral Intergenic SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R4_inter), x=2, y=0.28, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Sewage effluent  
+R_inter = round(summary(lm(y_inter$He_inter ~ y_inter$sewage))$r.squared, 4)             
+ggplot(y_inter, aes(x = sewage, y = He_inter)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Sewage Effluent, Neutral Intergenic SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R_inter), x=7, y=0.265, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Sewage effluent  
+R_inter = round(summary(lm(y_inter$Ho_inter ~ y_inter$sewage))$r.squared, 4)             
+ggplot(y_inter, aes(x = sewage, y = Ho_inter)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Sewage Effluent, Neutral Intergenic SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R_inter), x=7, y=0.28, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Temperature 
+R5_inter = round(summary(lm(y_inter$He_inter ~ y_inter$temperature))$r.squared, 4)             
+ggplot(y_inter, aes(x = temperature, y = He_inter)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) +
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Temperature, Neutral Intergenic SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R5_inter), x=23.25, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Temperature 
+R5_inter = round(summary(lm(y_inter$Ho_inter ~ y_inter$temperature))$r.squared, 4)             
+ggplot(y_inter, aes(x = temperature, y = Ho_inter)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Temperature, Neutral Intergenic SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R5_inter), x=23.25, y=0.28, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Salinity 
+R6_inter = round(summary(lm(y_inter$He_inter ~ y_inter$salinity))$r.squared, 4)             
+ggplot(y_inter, aes(x = salinity, y = He_inter)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Salinity, Neutral Intergenic SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R6_inter), x=23.25, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Salinity 
+R6_inter = round(summary(lm(y_inter$Ho_inter ~ y_inter$salinity))$r.squared, 4)             
+ggplot(y_inter, aes(x = salinity, y = Ho_inter)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Salinity, Neutral Intergenic SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R6_inter), x=23.25, y=0.28, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs pH
+R7_inter = round(summary(lm(y_inter$He_inter ~ y_inter$pH))$r.squared, 4)             
+ggplot(y_inter, aes(x = pH, y = He_inter)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) +
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs pH, Neutral Intergenic SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R7_inter), x=7.45, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs pH
+R7_inter = round(summary(lm(y_inter$Ho_inter ~ y_inter$pH))$r.squared, 4)             
+ggplot(y_inter, aes(x = pH, y = Ho_inter)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs pH, Neutral Intergenic SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R7_inter), x=7.45, y=0.28, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Chlorophyll a 
+R8_inter = round(summary(lm(y_inter$He_inter ~ y_inter$Chlor_a))$r.squared, 4)             
+ggplot(y_inter, aes(x = Chlor_a, y = He_inter)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Chlorophyll a, Neutral Intergenic SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R8_inter), x=8, y=0.27, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Chlorophyll a 
+R8_inter = round(summary(lm(y_inter$Ho_inter ~ y_inter$Chlor_a))$r.squared, 4)             
+ggplot(y_inter, aes(x = Chlor_a, y = Ho_inter)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Chlorophyll a, Neutral Intergenic SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R8_inter), x=6, y=0.285, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Dissolved Oxygen 
+R9_inter = round(summary(lm(y_inter$He_inter ~ y_inter$DO))$r.squared, 4)             
+ggplot(y_inter, aes(x = DO, y = He_inter)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Dissolved Oxygen, Neutral Intergenic SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R9_inter), x=5.5, y=0.265, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Dissolved Oxygen 
+R9_inter = round(summary(lm(y_inter$Ho_inter ~ y_inter$DO))$r.squared, 4)             
+ggplot(y_inter, aes(x = DO, y = Ho_inter)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Dissolved Oxygen, Neutral Intergenic SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R9_inter), x=5.5, y=0.28, parse=T) +
+scale_x_reverse()
+```
+
+
+## PCA 
+
+```{r}
+X_inter <- tab(stratted.u_inter, freq = TRUE, NA.method = "mean")
+pca1_inter <- dudi.pca(X_inter, scale = FALSE, scannf = FALSE, nf = 3)
+barplot(pca1_inter$eig[1:50], main = "PCA eigenvalues", col = heat.colors(50))
+s.class(pca1_inter$li, pop(stratted.filt_inter))
+title("PCA of neutral intergenic SNPs\naxes 1-2")
+add.scatter.eig(pca1_inter$eig[1:20], 3,1,2)
+col <- funky(15) 
+s.class(pca1_inter$li, pop(stratted.filt_inter),xax=1,yax=2, col=col, axesell=FALSE, cstar=0, cpoint=3, grid=FALSE)
+```
+
+
+## Discriminant Analysis of Principal Components (DAPC)
+
+The first line of the code block below is interactive. In the console, it will tell you:  
+1. Choose the number PCs to retain (>=1): 
+    I picked 1 
+2. Choose the number discriminant functions to retain (>=1):
+    I picked 2
+
+```{r}
+grp_inter <- find.clusters(stratted.u_inter, n.pca = 1, choose.n.clust = FALSE)
+table(pop(stratted.u_inter), grp_inter$grp)
+table.value(table(pop(stratted.u_inter), grp_inter$grp), col.lab=paste("inf", 1:2), row.lab=paste("ori", 1:4))
+```
+
+Again, the first line of the code block below is interactive. In the console, it will tell you:  
+1. Choose the number PCs to retain (>=1): 
+    I picked 1 
+2. Choose the number discriminant functions to retain (>=1):
+    I picked 1
+
+```{r}
+dapc1_inter <- dapc(stratted.u_inter, grp_inter$grp, n.pca = 1, n.da= 1)
+scatter(dapc1_inter,col=col,bg="white", solid=1)
+```
+
+Again, the first line of the code block below is interactive. In the console, it will tell you:  
+1. Choose the number PCs to retain (>=1): 
+    I picked 1 
+2. Choose the number discriminant functions to retain (>=1):
+    I picked 1
+
+```{r}
+contrib_inter <- loadingplot(dapc1_inter$var.contr, axis=1, thres=.01, lab.jitter=1)
+contrib_inter
+setPop(rad.filt_inter) <- ~Library
+dapc1_inter <- dapc(stratted.u_inter, pop(stratted.u_inter), n.pca = 1, n.da = 1)
+contrib_inter <- loadingplot(dapc1_inter$var.contr, axis=1, thres=.05, lab.jitter=1)
+```
+
+```{r}
+#Structure Like
+compoplot(dapc1_inter, posi="bottomright",txt.leg=paste("Cluster", 1:4), lab="", ncol=1, xlab="individuals")
+temp_inter <- which(apply(dapc1_inter$posterior,1, function(e) all(e<0.9)))
+compoplot(dapc1_inter, subset=temp_inter, posi="bottomright", txt.leg=paste("Cluster", 1:4), ncol=2)
+```
+
+### PCAviz
+
+```{r}
+NA.afDraw<- function(ind){
+  ind.mat <- ind@tab
+  new.mat <- ind.mat
+  af = colSums(ind.mat[,seq(1,ncol(ind.mat)-1,2)],na.rm = TRUE)/
+      (2*apply(ind.mat[,seq(1,ncol(ind.mat)-1,2)],2,function(x) sum(!is.na(x))))
+  af.Draw <- function(geno, af){
+     new <- function(geno,af){
+        if(is.na(geno)){
+        newA = rbinom(1,2,af)
+        }
+        else {newA <- geno}
+        return(newA)
+   }
+  new.row <- mapply(geno,af,FUN = new)
+  return(new.row)}
+  
+  new.mat[,seq(1,ncol(ind.mat)-1,2)] <- t(apply(ind.mat[,seq(1,ncol(ind.mat)-1,2)],1,af.Draw,af))
+  new.mat[,seq(2,ncol(ind.mat),2)] <- 2-new.mat[,seq(1,ncol(ind.mat)-1,2)]
+  new.ind <- ind
+  new.ind@tab <- new.mat
+  return(new.ind)
+}
+```
+
+```{r}
+u.na_inter <- NA.afDraw(stratted.u_inter)
+```
+
+```{r}
+pca_inter <- dudi.pca(u.na_inter,center=TRUE,scale=TRUE,scannf = F, nf = 30)
+```
+
+```{r}
+col18 <- funky(length(unique(u.na_inter@strata$Population)))
+#Colors that match the neutral Structure results
+col6 <-  c("firebrick","dodgerblue","midnightblue","salmon")
+par(mfrow=c(2,2))
+s.class(pca_inter$li, strata(u.na_inter)$Population,xax=1,yax=2, 
+        sub = "neutralintergenicloci,PC 1-2, 40 individuals, 2,019 loci, maf 5.0%",
+        possub = "topleft",col=transp(col6,.6),axesell=FALSE,
+        cstar=0, cpoint=3, grid=FALSE, cellipse = 0)
+s.class(pca_inter$li, strata(u.na_inter)$Population,xax=1,yax=3, 
+        sub = "neutralintergenicloci,PC 1-3, 40 individuals, 2,019 loci, maf 5.0%",
+        possub = "topleft",col=transp(col6,.6),axesell=FALSE,
+        cstar=0, cpoint=3, grid=FALSE, cellipse = 0)
+s.class(pca_inter$li, strata(u.na_inter)$Population,xax=1,yax=4, 
+        sub = "neutralintergenicloci,PC 1-4, 40 individuals, 2,019 loci, maf 5.0%",
+        possub = "topleft",col=transp(col6,.6),axesell=FALSE,
+        cstar=0, cpoint=3, grid=FALSE, cellipse = 0)
+s.class(pca_inter$li, strata(u.na_inter)$Population,xax=1,yax=5, 
+        sub = "neutralintergenicloci,PC 1-5, 40 individuals, 2,019 loci, maf 5.0%",
+        possub = "topleft",col=transp(col6,.6),axesell=FALSE,
+        cstar=0, cpoint=3, grid=FALSE, cellipse = 0)
+```
+
+
+# Neutral Intron SNPs
+
+****
+
+## Making files
+
+**Make genind object**
+
+`neutralintron.recode.vcf` contains neutral SNPs from intron regions for populations PVD, GB, BIS, and NAR. Steps for generating this VCF file are located in [EecSeq_Cvirginica_NeutralLoci.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/NonHaplotigMasked_Genome/Neutral_SNPs/EecSeq_Cvirginica_NeutralLoci.md).
+
+Population NIN was removed from the VCF file following steps in [EecSeq_Cvirginica_OutlierDetection.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/EecSeq_Cvirginica_OutlierDetection.md).
+
+`strata` contains population, environmental, and library information for each sample - can be accessed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/strata).
+
+```{r}
+my_vcf_intron <- read.vcfR("neutralintron.recode.vcf")
+strata <- read.table("strata", header=TRUE)
+```
+
+```{r}
+rad.filt_intron <- vcfR2genind(my_vcf_intron, strata = strata, pop = c(rep("BIS", 10),rep("GB", 10),rep("NAR", 10), rep("PVD",10)))
+```
+
+```{r}
+rad.filt_intron
+```
+
+```{r}
+#Providing population names for plotting
+pop_order <- c("BIS","GB","NAR","PVD")
+```
+
+**Read in the other info from .strata file and extract information such as locality, latitude, and longitude.**
+```{r}
+info <- as.data.frame(read.table("strata",header = T,sep = "\t",stringsAsFactors = F))
+mystrats_intron <- as.data.frame(matrix(nrow = length(indNames(rad.filt_intron)),ncol=10))
+colnames(mystrats_intron) <- c("Population","Latitude","Longitude","Distance","Temperature","SE","Salinity","pH","Chlorophylla","DO")
+just.strats <- select(info,c("Population"))
+stratted.filt_intron <- strata(rad.filt_intron, formula= Population, combine = TRUE,just.strats)
+stratted.filt_intron@other <- select(info, Latitude,Longitude,Distance,SE,Temperature,Salinity,pH,Chlorophylla,DO)
+```
+
+```{r}
+stratted.filt_intron
+```
+
+**Repeat for quasi-independent set of SNPs**
+
+Steps for filtering are documented for OutFLANK in [EecSeq_Cvirginica_OutlierDetection.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/EecSeq_Cvirginica_OutlierDetection.md). However, I am repeating the steps here. 
+
+```{r}
+my_vcf_intron <- read.vcfR("neutralintron.recode.vcf")
+
+geno_intron <- extract.gt(my_vcf_intron) # Character matrix containing the genotypes
+position_intron <- getPOS(my_vcf_intron) # Positions in bp
+chromosome_intron <- getCHROM(my_vcf_intron) # Chromosome information
+
+G_intron <- matrix(NA, nrow = nrow(geno_intron), ncol = ncol(geno_intron))
+
+G_intron[geno_intron %in% c("0/0", "0|0")] <- 0
+G_intron[geno_intron  %in% c("0/1", "1/0", "1|0", "0|1")] <- 1
+G_intron[geno_intron %in% c("1/1", "1|1")] <- 2
+
+# NA should be replaced with “9” 
+G_intron[is.na(G_intron)] <- 9
+```
+
+
+Chromosomes need to be of class integer for this to work.
+```{r}
+# Visualizing chromosomes
+chrom_unique_intron <- unique(chromosome_intron)
+print(chrom_unique_intron)
+```
+
+```{r}
+# Removing "NC_" from the chromosome name so it can be converted to an integer
+chrom_new_intron <- chromosome_intron%>%str_replace("NC_","")
+
+# Converting the character string into an integer
+chrom1_intron <- as.integer(chrom_new_intron)
+```
+
+`chromosome` and `position` need to be sorted for imputation to work.
+
+```{r}
+chrom_sort_intron <- sort(chrom1_intron)
+pos_sort_intron <- sort(position_intron)
+```
+
+_Note: This filtering program does not allow for missing genotype values._
+
+
+### Remove missing genotypes
+
+```{r}
+# removing missing data 
+G_intron_miss <- matrix(NA, nrow = nrow(geno_intron), ncol = ncol(geno_intron))
+
+G_intron_miss[geno_intron %in% c("0/0", "0|0")] <- 0
+G_intron_miss[geno_intron  %in% c("0/1", "1/0", "1|0", "0|1")] <- 1
+G_intron_miss[geno_intron %in% c("1/1", "1|1")] <- 2
+
+# removing missing data
+G_intron_miss[na.omit(G_intron_miss)]
+```
+
+
+```{r}
+# Converting the genotype matrix to class FBM.code256 using the matrix where missing data was removed
+G1_intron_miss <- add_code256(big_copy(t(G_intron_miss),type="raw"),code=bigsnpr:::CODE_012)
+```
+
+```{r}
+newpc_intron_miss <- snp_autoSVD(G1_intron_miss,infos.chr =chrom_sort_intron,infos.pos = pos_sort_intron, roll.size = 32) # roll.size = Radius of rolling windows to smooth log-p-values
+# maximum roll.size I could use is 32
+which_pruned_intron_miss <- attr(newpc_intron_miss, which="subset") # Indexes of remaining SNPS after pruning
+length(which_pruned_intron_miss)
+```
+
+
+```{r}
+invisible(lapply(which_pruned_intron_miss, write, "pruned_data_intron.txt", append=TRUE))
+```
+
+
+**In terminal**
+
+```
+$ mawk '!/#/' neutralintron.recode.vcf | cut -f1,2 > totallociintron
+$ NUM=(`cat totallociintron | wc -l`)
+$ paste <(seq 1 $NUM) totallociintron > lociintron.plus.index
+$ cat pruned_data_intron.txt | parallel "grep -w ^{} lociintron.plus.index" | cut -f2,3> pruned_data_intron.loci.txt
+
+$ head pruned_data_intron.loci.txt
+
+output:
+NC_035780.1	574321
+NC_035780.1	574444
+NC_035780.1	574657
+NC_035780.1	612658
+NC_035780.1	618706
+NC_035780.1	722826
+NC_035780.1	771520
+NC_035780.1	771800
+NC_035780.1	771812
+NC_035780.1	780771
+```
+
+Create VCF file with just the pruned_data loci 
+```
+$ vcftools --vcf neutralintron.recode.vcf --recode --recode-INFO-all --positions pruned_data_intron.loci.txt --out pruned_data_intron
+
+output:
+After filtering, kept 40 out of 40 Individuals
+Outputting VCF file...
+After filtering, kept 3766 out of a possible 16701 Sites
+Run Time = 1.00 seconds
+```
+
+```{r}
+my_vcf_u_intron <- read.vcfR("pruned_data_intron.recode.vcf")
+strata <- read.table("strata", header=TRUE)
+```
+
+```{r}
+rad.u_intron <- vcfR2genind(my_vcf_u_intron, strata = strata, pop = c(rep("BIS", 10),rep("GB", 10),rep("NAR", 10), rep("PVD",10)))
+```
+
+```{r}
+rad.u_intron
+```
+
+
+```{r}
+stratted.u_intron <- strata(rad.u_intron, formula= Population, combine = TRUE,just.strats)
+stratted.u_intron@other <- select(info, Latitude,Longitude, Distance, SE,  Temperature,Salinity,pH,Chlorophylla,DO)
+```
+
+```{r}
+stratted.u_intron
+```
+
+**Make hierfstat object**
+```{r}
+hf.filt_intron <- genind2hierfstat(rad.filt_intron, pop = c(rep("BIS", 10),rep("GB", 10),rep("NAR", 10), rep("PVD",10))) 
+```
+
+```{r}
+hf.u_intron <- genind2hierfstat(rad.u_intron, pop = c(rep("BIS", 10),rep("GB", 10),rep("NAR", 10), rep("PVD",10)))
+hf.u_intron <- hf.u_intron$hierfstat.no.imputation
+```
+
+## Estimating effective migration surfaces [(EEMS)](https://github.com/dipetkov/eems)
+
+__1. datapath.diffs__
+
+**Steps for generating `datapath.diffs` are completed in RStudio.**
+```{r}
+# V1 methtod to get diffs matrix, preferred
+bed2diffs_v1 <- function(Geno) {
+  nIndiv <- nrow(Geno)
+  nSites <- ncol(Geno)
+  Diffs <- matrix(0, nIndiv, nIndiv)
+  
+  for (i in seq(nIndiv - 1)) {
+    for (j in seq(i + 1, nIndiv)) {
+      x <- Geno[i, ]
+      y <- Geno[j, ]
+      Diffs[i, j] <- mean((x - y)^2, na.rm = TRUE)
+      Diffs[j, i] <- Diffs[i, j]
+    }
+  }
+  Diffs
+}
+```
+
+```{r}
+# V2 method to get .diffs matrix, only if V1 doesn't work
+bed2diffs_v2 <- function(Geno) {
+  nIndiv <- nrow(Geno)
+  nSites <- ncol(Geno)
+  Miss <- is.na(Geno)
+  ## Impute NAs with the column means (= twice the allele frequencies)
+  Mean <- matrix(colMeans(Geno, na.rm = TRUE), ## a row of means
+                 nrow = nIndiv, ncol = nSites, byrow = TRUE) ## a matrix with nIndiv identical rows of means
+  Mean[Miss == 0] <- 0 ## Set the means that correspond to observed genotypes to 0
+  Geno[Miss == 1] <- 0 ## Set the missing genotypes to 0 (used to be NA) 
+  Geno <- Geno + Mean
+  ## Compute similarities
+  Sim <- Geno %*% t(Geno) / nSites
+  SelfSim <- diag(Sim) ## self-similarities
+  vector1s <- rep(1, nIndiv) ## vector of 1s
+  ## This chunk generates a `diffs` matrix
+  Diffs <- SelfSim %*% t(vector1s) + vector1s %*% t(SelfSim) - 2 * Sim
+  Diffs
+}
+```
+
+```{r}
+geno_intron <- stratted.filt_intron@tab
+```
+
+```{r}
+# Get rid of non-biallelic loci
+multi.loci_intron <- names(which(stratted.filt_intron@loc.n.all != 2))
+multi.cols_intron <- which(grepl(paste0("^", multi.loci_intron, "\\.\\d+$", collapse = "|"), colnames(geno_intron)))
+if (length(multi.cols_intron)) geno_intron <- geno_intron[, - multi.cols_intron]
+nloci_intron <- dim(geno_intron)[2] / 2
+dim(geno_intron)
+```
+
+```{r}
+stopifnot(identical(stratted.filt_intron@type, 'codom'))
+```
+
+```{r}
+# bed2diffs functions  
+diffs.v1_intron <- bed2diffs_v1(geno_intron)
+diffs.v2_intron <- bed2diffs_v2(geno_intron)
+# Round to 6 digits
+diffs.v1_intron <- round(diffs.v1_intron, digits = 6)
+diffs.v2_intron <- round(diffs.v2_intron, digits = 6)
+```
+
+**Check that the dissimilarity matrix has one positive eigenvalue and nIndiv-1 negative eigenvalues, as required by a full-rank Euclidean distance matrix. If the V1 method does not make a Euclidean matrix, you must use V2.**
+
+```{r}
+tail(sort(round(eigen(diffs.v1_intron)$values, digits = 2)))
+```
+
+```{r}
+tail(sort(round(eigen(diffs.v2_intron)$values, digits = 2)))
+```
+
+```{r}
+# Set suffix for EEMS input files
+suf_intron <- "neutralintrondata-filt"
+```
+
+```{r}
+# This saves the file to directory 
+write.table(diffs.v1_intron, paste(suf_intron,".v1.diffs",sep=""), 
+            col.names = FALSE, row.names = FALSE, quote = FALSE)
+```
+
+
+__2. datapath.coord__
+
+`datapath.coord` are the sample coordinates, two coordinates per sample, one sample per line. The sampling locations should be given in the same order as the rows and columns of the dissimilarity matrix.
+
+**Steps for generating `datapath.coord` are completed in RStudio.**
+```{r}
+## Get gps coordinates from previously created info matrix
+xOR.info <- dplyr::filter(info)
+gps_matrix <- select(xOR.info,c("Longitude","Latitude"))
+```
+
+```{r}
+#write .coord file
+write.table(gps_matrix, paste(suf_intron,".v1.coord",sep=""),col.names = FALSE, row.names = FALSE,quote = FALSE)
+```
+
+__3. datapath.outer__
+
+`datapath.outer` are the habitat coordinates, as a sequence of vertices that form a closed polygon. The habitat vertices should be listed counterclockwise and the first vertex should also be the last vertex, so that the outline is a closed ring. Otherwise, EEMS attempts to "correct" the polygon and prints a warning message.
+
+**`datapath.outer` is created manually in Excel,based on site coordinates gathered from Google Maps, copied into terminal using `nano`, and saved as the file with the appropriate extension.** 
+
+
+**`runeems_snps` is then run in command-line following the steps documented in [NB_EEMS_OutlierHap.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/EEMS/NB_EEMS_OutlierHap.md) 
+
+**Back in RStudio to plot `runeems_snps` outputs**
+
+```{r}
+# Install rEEMSplots
+library(rEEMSplots)
+```
+
+```{r} 
+# Plotting EEMS after running runeems_snps
+path = "./NB_EEMS_Neutral/"
+dirs = c(paste0(path,"neutralintrondata-D200-chain1"), paste0(path,"neutralintrondata-D300-chain1"), paste0(path,"neutralintrondata-D600-chain1"))
+```
+
+```{r}
+eems.plots(mcmcpath = c(paste0(path,"./neutralintrondata-D200-chain1"), paste0(path,"neutralintrondata-D300-chain1"), paste0(path,"neutralintrondata-D600-chain1")), plotpath = paste0(path,"neutralintrondata-All-plots"),
+           longlat = T,add.grid=F,add.outline = T,add.demes = T,
+           projection.in = "+proj=longlat +datum=WGS84",projection.out = "+proj=merc +datum=WGS84",
+           add.map = T,add.abline = T, add.r.squared = T)
+```
+
+## Pairwise Fst
+
+```{r}
+fst.mat_intron <- pairwise.WCfst(hf.filt_intron)
+```
+
+```{r}
+gindF.fst.mat.triN_intron <- as.matrix(fst.mat_intron)
+colnames(gindF.fst.mat.triN_intron) <- pop_order
+rownames(gindF.fst.mat.triN_intron) <- pop_order
+```
+
+```{r}
+meltedN_intron <- melt(gindF.fst.mat.triN_intron, na.rm =TRUE)
+round(gindF.fst.mat.triN_intron,4)
+```
+
+```{r}
+summary(meltedN_intron$value)
+```
+
+
+```{r}
+#Plotting Pairwise fst
+neutral_intron <- ggplot(data = meltedN_intron, aes(Var2, Var1, fill = value))+ geom_tile(color = "white")+ 
+  scale_fill_gradient(low = "white", high = "red", name="FST")  +
+  ggtitle(expression(atop("Pairwise FST, WC (1984) Neutral Intron SNPs", atop(italic("N = 40, L = 16,701"), ""))))+
+  labs( x = "Sampling Site", y = "Sampling Site") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),axis.text.y = element_text(size = 13)) + 
+  theme(axis.title = element_text(size = 16),legend.text = element_text(size =15), legend.title = element_text(size =16)) +
+  theme(plot.title = element_text(size = 17)) +
+coord_fixed()
+neutral_intron
+```
+
+## Genetic diversity (observed and expected heterozygosity)
+
+```{r}
+comb_intron <- summary(stratted.filt_intron)
+names(comb_intron)
+```
+
+```{r}
+plot(comb_intron$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+```
+
+
+```{r}
+plot(comb_intron$Hobs,comb_intron$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+```
+
+```{r}
+bartlett.test(list(comb_intron$Hexp, comb_intron$Hobs)) # a test : H0: Hexp = Hobs
+```
+
+**_Significant difference between Observed and expected heterzygosity_**.  
+
+```{r}
+basicstat_intron <- basic.stats(hf.filt_intron, diploid = TRUE, digits = 3)
+```
+
+```{r}
+as.data.frame(basicstat_intron$overall)
+```
+
+```{r}
+# get bootstrap confidence values for Fis
+boot_intron <- boot.ppfis(hf.filt_intron,nboot = 1000)
+boot5_intron <- boot.ppfis(hf.filt_intron,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+# combine all pop statistics
+colnames(basicstat_intron$Ho) <- pop_order
+Ho_intron <- colMeans(basicstat_intron$Ho,na.rm = T)
+He_intron <- colMeans(basicstat_intron$Hs,na.rm = T)
+Fis_intron <- boot5_intron$fis.ci$ll
+y_intron <- cbind(pop_order,Ho_intron,He_intron,Fis_intron,boot_intron$fis.ci,latitude, longitude, distance, sewage, temperature, salinity, pH, Chlor_a, DO)
+y_intron
+```
+
+```{r}
+summary(He_intron)
+```
+
+```{r}
+summary(Fis_intron)
+```
+
+```{r}
+# Plot He vs Latitude
+R2_intron = round(summary(lm(y_intron$He_intron ~ y_intron$latitude))$r.squared, 4)             
+ggplot(y_intron, aes(x = latitude, y = He_intron)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) +
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Latitude, Neutral Intron SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R2_intron), x=41.55, y=0.2635, parse=T) +
+scale_x_continuous()
+```
+
+```{r}
+# Plot Ho vs Latitude
+R2_intron = round(summary(lm(y_intron$Ho_intron ~ y_intron$latitude))$r.squared, 4)             
+ggplot(y_intron, aes(x = latitude, y = Ho_intron)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Latitude, Neutral Intron SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R2_intron), x=41.55, y=0.26, parse=T) +
+scale_x_continuous()
+```
+
+```{r}
+#Plot He vs Longitude
+R3_intron = round(summary(lm(y_intron$He_intron ~ y_intron$longitude))$r.squared, 4)             
+ggplot(y_intron, aes(x = longitude, y = He_intron)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) +
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Longitude, Neutral Intron SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R3_intron), x=-71.44, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Longitude
+R3_intron = round(summary(lm(y_intron$Ho_intron ~ y_intron$longitude))$r.squared, 4)             
+ggplot(y_intron, aes(x = longitude, y = Ho_intron)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) +
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Longitude, Neutral Intron SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R3_intron), x=-71.44, y=0.26, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Distance from sewage outflow 
+R4_intron = round(summary(lm(y_intron$He_intron ~ y_intron$distance))$r.squared, 4)             
+ggplot(y_intron, aes(x = distance, y = He_intron)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Distance, Neutral Intron SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R4_intron), x=2, y=0.265, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Distance from sewage outflow 
+R4_intron = round(summary(lm(y_intron$Ho_intron ~ y_intron$distance))$r.squared, 4)             
+ggplot(y_intron, aes(x = distance, y = Ho_intron)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Distance, Neutral Intron SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R4_intron), x=2, y=0.255, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Sewage effluent  
+R_intron = round(summary(lm(y_intron$He_intron ~ y_intron$sewage))$r.squared, 4)             
+ggplot(y_intron, aes(x = sewage, y = He_intron)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Sewage Effluent, Neutral Intron SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R_intron), x=7, y=0.263, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Sewage effluent  
+R_intron = round(summary(lm(y_intron$Ho_intron ~ y_intron$sewage))$r.squared, 4)             
+ggplot(y_intron, aes(x = sewage, y = Ho_intron)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Sewage Effluent, Neutral Intron SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R_intron), x=7, y=0.26, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Temperature 
+R5_intron = round(summary(lm(y_intron$He_intron ~ y_intron$temperature))$r.squared, 4)             
+ggplot(y_intron, aes(x = temperature, y = He_intron)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) +
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Temperature, Neutral Intron SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R5_intron), x=23.25, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Temperature 
+R5_intron = round(summary(lm(y_intron$Ho_intron ~ y_intron$temperature))$r.squared, 4)             
+ggplot(y_intron, aes(x = temperature, y = Ho_intron)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Temperature, Neutral Intron SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R5_intron), x=23.25, y=0.26, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Salinity 
+R6_intron = round(summary(lm(y_intron$He_intron ~ y_intron$salinity))$r.squared, 4)             
+ggplot(y_intron, aes(x = salinity, y = He_intron)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Salinity, Neutral Intron SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R6_intron), x=23.25, y=0.267, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Salinity 
+R6_intron = round(summary(lm(y_intron$Ho_intron ~ y_intron$salinity))$r.squared, 4)             
+ggplot(y_intron, aes(x = salinity, y = Ho_intron)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Salinity, Neutral Intron SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R6_intron), x=23.25, y=0.255, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs pH
+R7_intron = round(summary(lm(y_intron$He_intron ~ y_intron$pH))$r.squared, 4)             
+ggplot(y_intron, aes(x = pH, y = He_intron)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) +
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs pH, Neutral Intron SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R7_intron), x=7.45, y=0.2635, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs pH
+R7_intron = round(summary(lm(y_intron$Ho_intron ~ y_intron$pH))$r.squared, 4)             
+ggplot(y_intron, aes(x = pH, y = Ho_intron)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs pH, Neutral Intron SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R7_intron), x=7.45, y=0.255, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Chlorophyll a 
+R8_intron = round(summary(lm(y_intron$He_intron ~ y_intron$Chlor_a))$r.squared, 4)             
+ggplot(y_intron, aes(x = Chlor_a, y = He_intron)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Chlorophyll a, Neutral Intron SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R8_intron), x=8, y=0.263, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Chlorophyll a 
+R8_intron = round(summary(lm(y_intron$Ho_intron ~ y_intron$Chlor_a))$r.squared, 4)             
+ggplot(y_intron, aes(x = Chlor_a, y = Ho_intron)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Chlorophyll a, Neutral Intron SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R8_intron), x=6, y=0.26, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot He vs Dissolved Oxygen 
+R9_intron = round(summary(lm(y_intron$He_intron ~ y_intron$DO))$r.squared, 4)             
+ggplot(y_intron, aes(x = DO, y = He_intron)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Expected heterozygosity vs Dissolved Oxygen, Neutral Intron SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R9_intron), x=6, y=0.265, parse=T) +
+scale_x_reverse()
+```
+
+```{r}
+#Plot Ho vs Dissolved Oxygen 
+R9_intron = round(summary(lm(y_intron$Ho_intron ~ y_intron$DO))$r.squared, 4)             
+ggplot(y_intron, aes(x = DO, y = Ho_intron)) + geom_point(aes(shape=pop_order, color=pop_order), size = 3) + 
+  scale_shape_manual(values = c(15,18,17,16)) + 
+geom_smooth(method=lm) + 
+ggtitle("Observed heterozygosity vs Dissolved Oxygen, Neutral Intron SNPs") +
+annotate(geom = "text", label=paste("italic(R^2)==",R9_intron), x=6, y=0.26, parse=T) +
+scale_x_reverse()
+```
+
+
+## PCA 
+
+```{r}
+X_intron <- tab(stratted.u_intron, freq = TRUE, NA.method = "mean")
+pca1_intron <- dudi.pca(X_intron, scale = FALSE, scannf = FALSE, nf = 3)
+barplot(pca1_intron$eig[1:50], main = "PCA eigenvalues", col = heat.colors(50))
+s.class(pca1_intron$li, pop(stratted.filt_intron))
+title("PCA of neutral intron SNPs\naxes 1-2")
+add.scatter.eig(pca1_intron$eig[1:20], 3,1,2)
+col <- funky(15) 
+s.class(pca1_intron$li, pop(stratted.filt_intron),xax=1,yax=2, col=col, axesell=FALSE, cstar=0, cpoint=3, grid=FALSE)
+```
+
+
+## Discriminant Analysis of Principal Components (DAPC)
+
+The first line of the code block below is interactive. In the console, it will tell you:  
+1. Choose the number PCs to retain (>=1): 
+    I picked 1 
+2. Choose the number discriminant functions to retain (>=1):
+    I picked 2
+
+```{r}
+grp_intron <- find.clusters(stratted.u_intron, n.pca = 1, choose.n.clust = FALSE)
+table(pop(stratted.u_intron), grp_intron$grp)
+table.value(table(pop(stratted.u_intron), grp_intron$grp), col.lab=paste("inf", 1:2), row.lab=paste("ori", 1:4))
+```
+
+Again, the first line of the code block below is interactive. In the console, it will tell you:  
+1. Choose the number PCs to retain (>=1): 
+    I picked 1 
+2. Choose the number discriminant functions to retain (>=1):
+    I picked 1
+
+```{r}
+dapc1_intron <- dapc(stratted.u_intron, grp_intron$grp, n.pca = 1, n.da= 1)
+scatter(dapc1_intron,col=col,bg="white", solid=1)
+```
+
+Again, the first line of the code block below is interactive. In the console, it will tell you:  
+1. Choose the number PCs to retain (>=1): 
+    I picked 1 
+2. Choose the number discriminant functions to retain (>=1):
+    I picked 1
+
+```{r}
+contrib_intron <- loadingplot(dapc1_intron$var.contr, axis=1, thres=.01, lab.jitter=1)
+contrib_intron
+setPop(rad.filt_intron) <- ~Library
+dapc1_intron <- dapc(stratted.u_intron, pop(stratted.u_intron), n.pca = 1, n.da = 1)
+contrib_intron <- loadingplot(dapc1_intron$var.contr, axis=1, thres=.05, lab.jitter=1)
+```
+
+```{r}
+#Structure Like
+compoplot(dapc1_intron, posi="bottomright",txt.leg=paste("Cluster", 1:4), lab="", ncol=1, xlab="individuals")
+temp_intron <- which(apply(dapc1_intron$posterior,1, function(e) all(e<0.9)))
+compoplot(dapc1_intron, subset=temp_intron, posi="bottomright", txt.leg=paste("Cluster", 1:4), ncol=2)
+```
+
+### PCAviz
+
+```{r}
+NA.afDraw<- function(ind){
+  ind.mat <- ind@tab
+  new.mat <- ind.mat
+  af = colSums(ind.mat[,seq(1,ncol(ind.mat)-1,2)],na.rm = TRUE)/
+      (2*apply(ind.mat[,seq(1,ncol(ind.mat)-1,2)],2,function(x) sum(!is.na(x))))
+  af.Draw <- function(geno, af){
+     new <- function(geno,af){
+        if(is.na(geno)){
+        newA = rbinom(1,2,af)
+        }
+        else {newA <- geno}
+        return(newA)
+   }
+  new.row <- mapply(geno,af,FUN = new)
+  return(new.row)}
+  
+  new.mat[,seq(1,ncol(ind.mat)-1,2)] <- t(apply(ind.mat[,seq(1,ncol(ind.mat)-1,2)],1,af.Draw,af))
+  new.mat[,seq(2,ncol(ind.mat),2)] <- 2-new.mat[,seq(1,ncol(ind.mat)-1,2)]
+  new.ind <- ind
+  new.ind@tab <- new.mat
+  return(new.ind)
+}
+```
+
+```{r}
+u.na_intron <- NA.afDraw(stratted.u_intron)
+```
+
+```{r}
+pca_intron <- dudi.pca(u.na_intron,center=TRUE,scale=TRUE,scannf = F, nf = 30)
+```
+
+```{r}
+col18 <- funky(length(unique(u.na_intron@strata$Population)))
+#Colors that match the neutral Structure results
+col6 <-  c("firebrick","dodgerblue","midnightblue","salmon")
+par(mfrow=c(2,2))
+s.class(pca_intron$li, strata(u.na_intron)$Population,xax=1,yax=2, 
+        sub = "neutralintronloci,PC 1-2, 40 individuals, 3,766 loci, maf 5.0%",
+        possub = "topleft",col=transp(col6,.6),axesell=FALSE,
+        cstar=0, cpoint=3, grid=FALSE, cellipse = 0)
+s.class(pca_intron$li, strata(u.na_intron)$Population,xax=1,yax=3, 
+        sub = "neutralintronloci,PC 1-3, 40 individuals, 3,766 loci, maf 5.0%",
+        possub = "topleft",col=transp(col6,.6),axesell=FALSE,
+        cstar=0, cpoint=3, grid=FALSE, cellipse = 0)
+s.class(pca_intron$li, strata(u.na_intron)$Population,xax=1,yax=4, 
+        sub = "neutralintronloci,PC 1-4, 40 individuals, 3,766 loci, maf 5.0%",
+        possub = "topleft",col=transp(col6,.6),axesell=FALSE,
+        cstar=0, cpoint=3, grid=FALSE, cellipse = 0)
+s.class(pca_intron$li, strata(u.na_intron)$Population,xax=1,yax=5, 
+        sub = "neutralintronloci,PC 1-5, 40 individuals, 3,766 loci, maf 5.0%",
+        possub = "topleft",col=transp(col6,.6),axesell=FALSE,
+        cstar=0, cpoint=3, grid=FALSE, cellipse = 0)
+```
+
+
+# Seascape Redundancy Analysis
+
+This code follows that documented by [Tom Jenkins](https://github.com/Tom-Jenkins/seascape_rda_tutorial).
+
+## [Prepare genetic data for redundancy analysis](https://github.com/Tom-Jenkins/seascape_rda_tutorial/blob/master/1.Prepare_genetic_data/1.prepare_genetic_data.R).
+
+#### Notes before execution:
+1. Make sure all required R packages are installed.
+2. Set working directory to the location of this R script.
+
+```{r}
+# Load packages
+library(adegenet)
+library(poppr)
+library(dplyr)
+library(reshape2)
+library(ggplot2)
+library(vcfR)
+```
+
+```{r}
+# Explore data
+rad.filt
+nLoc(rad.filt) # number of loci
+nPop(rad.filt) # number of sites
+nInd(rad.filt) # number of individuals
+summary(rad.filt$pop) # sample size
+```
+
+```{r}
+# Calculate allele frequencies for each site
+allele_freqs = data.frame(rraf(rad.filt, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+```
+
+```{r}
+# Keep only the first of the two alleles for each SNP (since p=1-q).
+allele_freqs = allele_freqs[, seq(1, dim(allele_freqs)[2], 2)]
+```
+
+```{r}
+# Export allele frequencies
+write.csv(allele_freqs, file = "all_allele_freqs.csv", row.names = TRUE)
+```
+
+#--------------#
+#
+# Calculate minor allele frequencies
+#
+#--------------#
+
+```{r}
+# Separate genind object by site
+site_list = seppop(rad.filt)
+names(site_list)
+```
+
+```{r}
+# Calculate the minor allele frequency for each site
+maf_list = lapply(site_list, FUN = minorAllele)
+```
+
+```{r}
+# Convert list to dataframe
+maf = as.data.frame(maf_list) %>% t() %>% as.data.frame()
+```
+
+```{r}
+# Export minor allele frequencies
+write.csv(maf, file = "minor_allele_freqs.csv", row.names = TRUE)
+```
+
+# ----------------- #
+#
+# Visualise allele frequencies
+#
+# ----------------- #
+
+```{r}
+# Add site labels
+allele_freqs$site = rownames(allele_freqs)
+```
+
+```{r}
+# Function to add regional labels to dataframe
+addregion = function(x){
+  # If pop label is present function will output the region
+  if(x=="BIS") y = " Bissel Cove "
+  if(x=="GB") y = " Greenwich Bay "
+  if(x=="NAR") y = " Narrow River "
+  if(x=="PVD") y = " Bold Point Park "
+  return(y)
+}
+```
+
+```{r}
+# Add regional labels
+allele_freqs$region = sapply(rownames(allele_freqs), addregion)
+```
+
+```{r}
+# Convert dataframe to long format
+allele_freqs.long = melt(allele_freqs, id.vars=c("site","region"))
+```
+
+```{r}
+# Define order of facets using the levels argument in factor
+unique(allele_freqs.long$site)
+site_order =  c("BIS","GB","NAR","PVD")
+allele_freqs.long$site_ord = factor(allele_freqs.long$site, levels = site_order)
+```
+
+```{r}
+# Define region order
+region_order = c(" Bissel Cove "," Greenwich Bay "," Narrow River ", " Bold Point Park ")
+allele_freqs.long$region = factor(allele_freqs.long$region, levels = region_order)
+```
+
+```{r}
+# Create colour scheme
+# blue=#377EB8, green=#7FC97F, orange=#FDB462, red=#E31A1C
+col_scheme = c("#7FC97F","#377EB8","#FDB462","#E31A1C")
+```
+
+
+A subset of the putatively outlier loci was selected, spanning all 4 outlier detection programs. 
+
+```{r}
+# Vector of outlier SNP loci to subset
+desired_loci = c("NC_035780.1_2492392","NC_035780.1_58431616","NC_035780.1_2492005","NC_035782.1_39657559","NC_035783.1_56550670","NC_035784.1_65251317","NC_035785.1_32466402","NC_035786.1_26380600","NC_035788.1_60313741")
+desired_loci_ID = sapply(paste(desired_loci, "..", sep = ""),
+                         grep,
+                         levels(allele_freqs.long$variable),
+                         value = TRUE) %>% as.vector()
+```
+
+```{r}
+# Subset dataset to plot desired SNP loci
+allele_freqs.sub = allele_freqs.long %>% filter(variable %in% desired_loci_ID)
+```
+
+```{r}
+# ggplot2 theme
+ggtheme = theme(
+  axis.text.x = element_blank(),
+  axis.text.y = element_text(colour="black", size=6),
+  axis.title = element_text(colour="black", size=15),
+  panel.background = element_rect(fill="white"),
+  panel.grid.minor = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.border = element_rect(colour="black", fill=NA, size=0.5),
+  plot.title = element_text(hjust = 0.5, size=18),
+  legend.title = element_blank(),
+  legend.text = element_text(size=10),
+  legend.position = "top",
+  legend.justification = "centre",
+  # facet labels
+  strip.text = element_text(colour="black", size=8)
+)
+```
+
+```{r}
+# Plot barplot
+ggplot(data = allele_freqs.sub, aes(x = site_ord, y = value, fill = region))+
+  geom_bar(stat = "identity", colour = "black", size = 0.3)+
+  facet_wrap(~variable, scales = "free")+
+  scale_y_continuous(limits = c(0,1), expand = c(0,0))+
+  scale_fill_manual(values = col_scheme)+
+  ylab("Allele frequency")+
+  xlab("Site")+
+  ggtheme
+ggsave("allele_freq.png", width=10, height=8, dpi=300)
+ggsave("allele_freq.pdf", width=10, height=8)
+```
+
+## [Prepare environmental data for redundancy analysis](https://github.com/Tom-Jenkins/seascape_rda_tutorial/blob/master/3.Prepare_environmental_data/3.prepare_env_data.R).
+
+#### Environmental variables:
+- Distance from sewage effluent source (km)
+- Sewage Effluent (PW stats)
+- Mean temperature (deg C)
+- Mean Salinity (psu)
+- Mean pH
+- Mean Chlorophyll-a (ug/L)
+- Mean Dissolved Oxygen (mg/L)
+
+Environmental data for each population is saved in a `strata_pop` file that can be accessed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/strata_pop)
+
+```{r}
+# All environmental data was previously saved in strata file 
+strata_pop <- read.table("strata_pop", header=TRUE)
+strata_pop
+```
+
+```{r}
+# Export data as a csv file
+write.csv(strata_pop, file="environmental_data.csv", row.names = FALSE)
+```
+
+I also prepared spatial data for the redundancy analysis which is documented [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/RedundancyAnalysis/PrepSpatialData.Rmd).
+
+Allele frequency, environmental, and spatial csv files are saved to your working directory and must be imported into the Rscript to run the redundancy analysis. Documentation of the RDA can be accessed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/RedundancyAnalysis/RDA_Outlier_Hap.Rmd). 
+
+RDA and pRDA output plots can be viewed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/tree/master/Output/RedundancyAnalysis/NonHapMasked_Neutral).
