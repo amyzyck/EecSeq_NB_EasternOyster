@@ -13,7 +13,7 @@ Various population genomics and seascape genomics analyses were completed for al
 - `Neutral_SNPs`
 - `Outlier_SNPs`
 
-**`strata` and `strata_pop` are input files used for making genind objects for population and seascape genomics analyses for all SNP datasets. `strata ` contains population, environmental, and library information for each sample. `strata_pop` contains environmental information for each population. 
+**`strata` and `strata_pop` are input files used for making genind objects for population and seascape genomics analyses for all SNP datasets. `strata ` contains population, environmental, and library information for each sample. `strata_pop` contains environmental information for each population.** 
 
 3. `EEMS` contains input files, Markdown files, and RMarkdown files for running the Estimating Effective Migration Surfaces analysis and plotting the results. This directory only documents the analysis for the Haplotig Masked Outlier SNP dataset, however the code is duplicated across all of the SNP datasets. Directory content:
 - `input_files`: all files needed to run `runeems_snps`, organized by each SNP dataset. Files were either created in R or created manually.
