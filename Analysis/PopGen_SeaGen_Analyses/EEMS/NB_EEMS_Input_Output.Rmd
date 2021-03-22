@@ -1,0 +1,199 @@
+---
+title: "NB_EEMS"
+author: "Amy Zyck"
+date: "3/21/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Estimating effective migration surfaces [(EEMS)](https://github.com/dipetkov/eems)
+
+The program `runeems_snps` implements the EEMS method for analyzing spatial population structure. This version uses the pairwise genetic dissimilarity matrix computed from SNP data.
+
+Here is the code used to run `runeems_snps` in both RStudio and command-line. Detailed steps for running this program can be accessed [here](https://github.com/dipetkov/eems/tree/master/runeems_snps). Input files are created in RStudio or manually (see below) and saved to the directory where `runeems_snps` will be run. The program is then run in the command-line. The outputs are then plotted in RStudio. 
+
+## Making files
+
+**Make genind object**
+
+`outlierlocihap.recode.vcf` contains outlier SNPs (putatively under selection) for populations PVD, GB, BIS, and NAR called from reads aligned to the Eastern Oyster haplotig masked genome. Steps for generating this VCF file are located in [EecSeq_Cvirginica_dDocent.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/EecSeq_Cvirginica_dDocent.md) and [EecSeq_Cvirginica_Filtering.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/EecSeq_Cvirginica_Filtering.md). Population NIN was removed from the VCF file following steps in [EecSeq_Cvirginica_OutlierDetection.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/EecSeq_Cvirginica_OutlierDetection.md).
+
+`strata` contains population, environmental, and library information for each sample - can be accessed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/strata).
+
+```{r}
+my_vcf <- read.vcfR("outlierlocihap.recode.vcf")
+strata <- read.table("strata", header=TRUE)
+```
+
+```{r}
+rad.filt <- vcfR2genind(my_vcf, strata = strata, pop = c(rep("BIS", 10),rep("GB", 10),rep("NAR", 10), rep("PVD",10)))
+```
+
+```{r}
+rad.filt
+```
+
+```{r}
+#Providing population names for plotting
+pop_order <- c("BIS","GB","NAR","PVD")
+```
+
+**Read in the other info from .strata file and extract information such as locality, latitude, and longitude.**
+```{r}
+info <- as.data.frame(read.table("strata",header = T,sep = "\t",stringsAsFactors = F))
+mystrats <- as.data.frame(matrix(nrow = length(indNames(rad.filt)),ncol=10))
+colnames(mystrats) <- c("Population","Latitude","Longitude","Distance","SE","Temperature","Salinity","pH","Chlorophylla","DO")
+just.strats <- select(info,c("Population"))
+stratted.filt <- strata(rad.filt, formula= Population, combine = TRUE,just.strats)
+stratted.filt@other <- select(info, Latitude,Longitude,Distance,SE,Temperature,Salinity,pH,Chlorophylla,DO)
+```
+
+```{r}
+stratted.filt
+```
+
+`runeems_snps` requires three data input files that have the same file name but different extension. The description below assumes that datapath is the full path + the file name (but without the extension).
+
+__1. datapath.diffs__
+
+`datapath.diffs` is the matrix of average pairwise genetic dissimilarities. This can be computed with bed2diffs from genetic data in plink binary format.
+
+The dissimilarity matrix is nonnegative, symmetric, with 0s on the main diagonal. These conditions are necessary but not sufficient for diffs to be a valid dissimilarity matrix. Mathematically, diffs should be conditionally negative definite.
+
+**Steps for generating `datapath.diffs` are completed in RStudio.**
+```{r}
+# V1 methtod to get diffs matrix, preferred
+bed2diffs_v1 <- function(Geno) {
+  nIndiv <- nrow(Geno)
+  nSites <- ncol(Geno)
+  Diffs <- matrix(0, nIndiv, nIndiv)
+  
+  for (i in seq(nIndiv - 1)) {
+    for (j in seq(i + 1, nIndiv)) {
+      x <- Geno[i, ]
+      y <- Geno[j, ]
+      Diffs[i, j] <- mean((x - y)^2, na.rm = TRUE)
+      Diffs[j, i] <- Diffs[i, j]
+    }
+  }
+  Diffs
+}
+```
+
+```{r}
+# V2 method to get .diffs matrix, only if V1 doesn't work
+bed2diffs_v2 <- function(Geno) {
+  nIndiv <- nrow(Geno)
+  nSites <- ncol(Geno)
+  Miss <- is.na(Geno)
+  ## Impute NAs with the column means (= twice the allele frequencies)
+  Mean <- matrix(colMeans(Geno, na.rm = TRUE), ## a row of means
+                 nrow = nIndiv, ncol = nSites, byrow = TRUE) ## a matrix with nIndiv identical rows of means
+  Mean[Miss == 0] <- 0 ## Set the means that correspond to observed genotypes to 0
+  Geno[Miss == 1] <- 0 ## Set the missing genotypes to 0 (used to be NA) 
+  Geno <- Geno + Mean
+  ## Compute similarities
+  Sim <- Geno %*% t(Geno) / nSites
+  SelfSim <- diag(Sim) ## self-similarities
+  vector1s <- rep(1, nIndiv) ## vector of 1s
+  ## This chunk generates a `diffs` matrix
+  Diffs <- SelfSim %*% t(vector1s) + vector1s %*% t(SelfSim) - 2 * Sim
+  Diffs
+}
+```
+
+```{r}
+geno <- stratted.filt@tab
+```
+
+```{r}
+# Get rid of non-biallelic loci
+multi.loci <- names(which(stratted.filt@loc.n.all != 2))
+multi.cols <- which(grepl(paste0("^", multi.loci, "\\.\\d+$", collapse = "|"), colnames(geno)))
+if (length(multi.cols)) geno <- geno[, - multi.cols]
+nloci <- dim(geno)[2] / 2
+dim(geno)
+```
+
+```{r}
+stopifnot(identical(stratted.filt@type, 'codom'))
+```
+
+```{r}
+# bed2diffs functions  
+diffs.v1 <- bed2diffs_v1(geno)
+diffs.v2 <- bed2diffs_v2(geno)
+# Round to 6 digits
+diffs.v1 <- round(diffs.v1, digits = 6)
+diffs.v2 <- round(diffs.v2, digits = 6)
+```
+
+**Check that the dissimilarity matrix has one positive eigenvalue and nIndiv-1 negative eigenvalues, as required by a full-rank Euclidean distance matrix. If the V1 method does not make a Euclidean matrix, you must use V2.**
+
+```{r}
+tail(sort(round(eigen(diffs.v1)$values, digits = 2)))
+```
+
+```{r}
+tail(sort(round(eigen(diffs.v2)$values, digits = 2)))
+```
+
+```{r}
+# Set suffix for EEMS input files
+suf <- "outlierdata-filt"
+```
+
+```{r}
+# This saves the file to directory 
+write.table(diffs.v1, paste(suf,".v1.diffs",sep=""), 
+            col.names = FALSE, row.names = FALSE, quote = FALSE)
+```
+
+
+__2. datapath.coord__
+
+`datapath.coord` are the sample coordinates, two coordinates per sample, one sample per line. The sampling locations should be given in the same order as the rows and columns of the dissimilarity matrix.
+
+**Steps for generating `datapath.coord` are completed in RStudio.**
+```{r}
+## Get gps coordinates from previously created info matrix
+xOR.info <- dplyr::filter(info)
+gps_matrix <- select(xOR.info,c("Longitude","Latitude"))
+```
+
+```{r}
+#write .coord file
+write.table(gps_matrix, paste(suf,".v1.coord",sep=""),col.names = FALSE, row.names = FALSE,quote = FALSE)
+```
+
+__3. datapath.outer__
+
+`datapath.outer` are the habitat coordinates, as a sequence of vertices that form a closed polygon. The habitat vertices should be listed counterclockwise and the first vertex should also be the last vertex, so that the outline is a closed ring. Otherwise, EEMS attempts to "correct" the polygon and prints a warning message.
+
+**`datapath.outer` is created manually in Excel,based on site coordinates gathered from Google Maps, copied into terminal using `nano`, and saved as the file with the appropriate extension.** 
+
+
+**`runeems_snps` is then run in command-line following the steps documented in [NB_EEMS_OutlierHap.md](https://github.com/amyzyck/EecSeq_NB_EasternOyster/tree/master/Analysis/PopGen_SeaGen_Analyses/EEMS/NB_EEMS_OutlierHap.md) 
+
+**Back in RStudio to plot `runeems_snps` outputs**
+
+```{r}
+# Install rEEMSplots
+library(rEEMSplots)
+```
+
+```{r} 
+# Plotting EEMS after running runeems_snps
+path = "./NB_EEMS_OutlierHap/"
+dirs = c(paste0(path,"outlierdata-D200-chain1"), paste0(path,"outlierdata-D300-chain1"), paste0(path,"outlierdata-D600-chain1"))
+```
+
+```{r}
+eems.plots(mcmcpath = c(paste0(path,"./outlierdata-D200-chain1"), paste0(path,"outlierdata-D300-chain1"), paste0(path,"outlierdata-D600-chain1")), plotpath = paste0(path,"outlierdata-All-plots"),
+           longlat = T,add.grid=F,add.outline = T,add.demes = T,
+           projection.in = "+proj=longlat +datum=WGS84",projection.out = "+proj=merc +datum=WGS84",
+           add.map = T,add.abline = T, add.r.squared = T)
+```
