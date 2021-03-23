@@ -2,7 +2,9 @@
 title: "NB Population Genomic Analysis on Non-Haplotig Masked All SNPs"
 author: "Amy Zyck"
 date: "7/12/2020"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -341,7 +343,7 @@ tail(sort(round(eigen(diffs.v2)$values, digits = 2)))
 
 ```{r}
 # Set suffix for EEMS input files
-suf <- "neutraldata-filt"
+suf <- "alldata-filt"
 ```
 
 ```{r}
@@ -385,12 +387,12 @@ library(rEEMSplots)
 
 ```{r} 
 # Plotting EEMS after running runeems_snps
-path = "./NB_EEMS_Neutral/"
-dirs = c(paste0(path,"neutraldata-D200-chain1"), paste0(path,"neutraldata-D300-chain1"), paste0(path,"neutraldata-D600-chain1"))
+path = "./NB_EEMS_All/"
+dirs = c(paste0(path,"alldata-D200-chain1"), paste0(path,"alldata-D300-chain1"), paste0(path,"alldata-D600-chain1"))
 ```
 
 ```{r}
-eems.plots(mcmcpath = c(paste0(path,"./neutraldata-D200-chain1"), paste0(path,"neutraldata-D300-chain1"), paste0(path,"neutraldata-D600-chain1")), plotpath = paste0(path,"neutraldata-All-plots"),
+eems.plots(mcmcpath = c(paste0(path,"./alldata-D200-chain1"), paste0(path,"alldata-D300-chain1"), paste0(path,"alldata-D600-chain1")), plotpath = paste0(path,"alldata-All-plots"),
            longlat = T,add.grid=F,add.outline = T,add.demes = T,
            projection.in = "+proj=longlat +datum=WGS84",projection.out = "+proj=merc +datum=WGS84",
            add.map = T,add.abline = T, add.r.squared = T)
