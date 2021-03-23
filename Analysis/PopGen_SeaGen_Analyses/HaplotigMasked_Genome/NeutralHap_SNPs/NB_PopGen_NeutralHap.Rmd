@@ -427,7 +427,7 @@ neutral <- ggplot(data = meltedN, aes(Var2, Var1, fill = value))+ geom_tile(colo
   ggtitle(expression(atop("Pairwise FST, WC (1984) Neutral SNPs", atop(italic("N = 40, L = 90,861"), ""))))+
   labs( x = "Sampling Site", y = "Sampling Site") + 
   theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),axis.text.y = element_text(size = 12)) + 
-  theme(axis.title = element_text(size = 12),legend.text = element_text(size =14), legend.title = element_text(size =14)) +d
+  theme(axis.title = element_text(size = 12),legend.text = element_text(size =14), legend.title = element_text(size =14)) +
   theme(plot.title = element_text(size = 14)) +
 coord_fixed()
 neutral
