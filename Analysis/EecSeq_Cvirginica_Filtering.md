@@ -517,7 +517,7 @@ Run Time = 36.00 seconds
 ***
 **Filtered by a few different Minor Allele Frequencies**
 
-Minor Allele Frequency greater than 1%
+Minor Allele Frequency less than 1%
 
 ```
 $ vcftools --vcf SNP.TRSdp5g5mafMIp9g9dnDNA.recode.vcf --maf 0.01 --recode --recode-INFO-all --out SNP.TRSdp5g5mafMIp9g9dnDNAmaf01
@@ -546,7 +546,7 @@ After filtering, kept 210181 out of a possible 210181 Sites
 Run Time = 39.00 seconds
 ```
 
-Minor Allele Frequency greater than 2.5%
+Minor Allele Frequency less than 2.5%
 
 ```
 $ vcftools --vcf SNP.TRSdp5g5mafMIp9g9dnDNA.recode.vcf --maf 0.025 --recode --recode-INFO-all --out SNP.TRSdp5g5mafMIp9g9dnDNAmaf025
@@ -575,7 +575,7 @@ After filtering, kept 123524 out of a possible 210181 Sites
 Run Time = 23.00 seconds
 ```
 
-Minor Allele Frequency greater than 5%
+Minor Allele Frequency less than 5%
 
 ```
 $ vcftools --vcf SNP.TRSdp5g5mafMIp9g9dnDNA.recode.vcf --maf 0.05 --recode --recode-INFO-all --out SNP.TRSdp5g5mafMIp9g9dnDNAmaf05
