@@ -3,7 +3,7 @@ export LC_ALL=en_US.UTF-8
 export SHELL=bash
 
 ##########dDocent##########
-VERSION='2.8.10'; export VERSION
+VERSION='3.0.0'; export VERSION
 #This script serves as an interactive bash wrapper to QC, assemble, map, and call SNPs from double digest RAD (SE or PE), ezRAD (SE or PE) data, or SE RAD data.
 #It requires that your raw data are split up by tagged individual and follow the naming convention of:
 
@@ -356,9 +356,9 @@ echo -e "\nUsing BWA to map reads"
         	for i in "${NAMES[@]}"
         	do
         	if [ -f "$i.R2.fq.gz" ]; then
-        		bwa mem -L 20,5 -I $INSERT,$SD,$INSERTH,$INSERTL -t $NUMProc -a -M -T 10 -A $optA -B $optB -O $optO -R "@RG\tID:$i\tSM:$i\tPL:Illumina" reference.fasta $i.R1.fq.gz $i.R2.fq.gz  2> bwa.$i.log | mawk '$6 !~/[2-9].[SH]/ && $6 !~ /[1-9][0-9].[SH]/' | samtools view -@$SAMProc -q 10 -SbT reference.fasta - > $i.bam 2>$i.bam.log
+        		bwa mem -L 20,5 -I $INSERT,$SD,$INSERTH,$INSERTL -t $NUMProc -M -T 10 -A $optA -B $optB -O $optO -R "@RG\tID:$i\tSM:$i\tPL:Illumina" reference.fasta $i.R1.fq.gz $i.R2.fq.gz  2> bwa.$i.log | mawk '$6 !~/[2-9].[SH]/ && $6 !~ /[1-9][0-9].[SH]/' | samtools view -@$SAMProc -SbT reference.fasta - > $i.bam 2>$i.bam.log
         	else
-        		bwa mem -L 20,5 -t $NUMProc -a -M -T 10 -A $optA -B $optB -O $optO -R "@RG\tID:$i\tSM:$i\tPL:Illumina" reference.fasta $i.R1.fq.gz 2> bwa.$i.log | mawk '$6 !~/[2-9].[SH]/ && $6 !~ /[1-9][0-9].[SH]/' | samtools view -@$SAMProc -q 10 -SbT reference.fasta - > $i.bam 2>$i.bam.log
+        		bwa mem -L 20,5 -t $NUMProc -M -T 10 -A $optA -B $optB -O $optO -R "@RG\tID:$i\tSM:$i\tPL:Illumina" reference.fasta $i.R1.fq.gz 2> bwa.$i.log | mawk '$6 !~/[2-9].[SH]/ && $6 !~ /[1-9][0-9].[SH]/' | samtools view -@$SAMProc -SbT reference.fasta - > $i.bam 2>$i.bam.log
         	fi
         	samtools sort -@$SAMProc $i.bam -o $i.bam 2>>$i.bam.log
 			mv $i.bam $i-RG.bam
@@ -368,18 +368,17 @@ echo -e "\nUsing BWA to map reads"
         	for i in "${NAMES[@]}"
         	do
         	if [ -f "$i.R2.fq.gz" ]; then
-        		bwa mem -t $NUMProc -a -M -A $optA -B $optB -O $optO -R "@RG\tID:$i\tSM:$i\tPL:Illumina" reference.fasta $i.R1.fq.gz $i.R2.fq.gz  2> bwa.$i.log | mawk '$6 !~ /[1-9][0-9].[SH]/' | samtools view -@$SAMProc -q 10 -SbT reference.fasta - > $i.bam 2>$i.bam.log
+        		bwa mem -t $NUMProc -M -A $optA -B $optB -O $optO -R "@RG\tID:$i\tSM:$i\tPL:Illumina" reference.fasta $i.R1.fq.gz $i.R2.fq.gz  2> bwa.$i.log | samtools sort -@$NUMProc -o $i-RG.bam 2>$i.bam.log
         	else
-        		bwa mem -t $NUMProc -a -M -A $optA -B $optB -O $optO -R "@RG\tID:$i\tSM:$i\tPL:Illumina" reference.fasta $i.R1.fq.gz  2> bwa.$i.log | mawk '$6 !~ /[1-9][0-9].[SH]/' | samtools view -@$SAMProc -q 1 -SbT reference.fasta - > $i.bam 2>$i.bam.log
+        		bwa mem -t $NUMProc -M -A $optA -B $optB -O $optO -R "@RG\tID:$i\tSM:$i\tPL:Illumina" reference.fasta $i.R1.fq.gz  2> bwa.$i.log | samtools sort -@$NUMProc -o $i-RG.bam  2>$i.bam.log
         	fi
-        	samtools sort -@$SAMProc $i.bam -o $i.bam 2>>$i.bam.log
-		mv $i.bam $i-RG.bam
 		samtools index $i-RG.bam
         	done
         fi
 	cat namelist | parallel -j 8 "java -Xms4g -jar /usr/local/bin/picard.jar MarkDuplicates I={}-RG.bam O={}-RGmd.bam M={}_dup_metrics.txt OPTICAL_DUPLICATE_PIXEL_DISTANCE=2500 TAGGING_POLICY=OpticalOnly &> md.{}.log"
+	cat namelist | parallel -j $NUMProc "rm {}-RG.bam"
 	filter_bam(){
-	samtools view -@32 -h -F 0x100 -F 0x400 $1-RGmd.bam | mawk '$6 !~/[8-9].[SH]/ && $6 !~ /[1-9][0-9].[SH]/'| samtools view -@ 32 -b
+	samtools view -@32 -h -q 10 -F 0x100 -F 0x400 $1-RGmd.bam | mawk '$6 !~/[8-9].[SH]/ && $6 !~ /[1-9][0-9].[SH]/'| samtools view -@ 32 -b
 	}
 
 	export -f filter_bam
@@ -412,7 +411,11 @@ if [ "$SNP" != "no" ]; then
 	fi
 	#Check to make sure interval files have been created
 	if [[ "$MAP" == "no" && ! -f "mapped.bed" ]]; then
-		bedtools merge -i filter.merged.bam -bed >  mapped.bed
+		#bedtools merge -i filter.merged.bam -bed >  mapped.bed
+		p_bam_depth(){ samtools depth $1 | mawk '{if ($3 > 1); print $1 "\t" $2-1 "\t" $2}' | bedtools merge -i -; }
+		export -f p_bam_depth
+		FB2=$(( $NUMProc / 2 ))
+		ls *.F.bam | parallel --env p_bam_depth -j $FB2 "p_bam_depth {}" | sort -S 2G --parallel=$NUMProc -k1,1 -k2,2n | bedtools merge -i - > mapped.bed
 	fi
 	#This code estimates the coverage of reference intervals and removes intervals in 0.01% of depth
 	#This allows genotyping to be more effecient and eliminates extreme copy number loci from the data
@@ -467,7 +470,7 @@ if [ "$SNP" != "no" ]; then
 	#rm cov.high.stats cov.low.stats temp1.bed temp.cov.stats
 	
 	GENOME=$(cut -f2 reference.fasta.fai | mawk '{sum = sum + $1} END {print sum}')
-	PFiles=$(( $GENOME / 500000 ))
+	PFiles=$(( $GENOME / 100000 ))
 	split -n l/$PFiles -a 5 --additional-suffix=.bed -d mapped.bed mapped.	
 
 	#TT=$(( $MaxLen2 * $PFiles ))
@@ -498,7 +501,7 @@ if [ "$SNP" != "no" ]; then
 		#samtools view -@$SAMProc -b -1 -L mapped.$1.bed -o split.$1.bam cat-RRG.bam
 		#samtools index split.$1.bam
 		echo "Starting Freebayes instance " $1 >> freebayes.log
-		freebayes -b filter.merged.bam -t mapped.$1.bed -v raw.$1.vcf -f reference.fasta -m 5 -q 5 -E 3 --min-repeat-entropy 1 --populations popmap -n 10 -F 0.1 &> fb.$1.error.log
+		freebayes -b filter.merged.bam -t mapped.$1.bed -f reference.fasta -m 5 -q 5 -E 3 --min-repeat-entropy 1 --populations popmap -n 10 -F 0.1 | bcftools view -O b -o raw.$1.bcf &> fb.$1.error.log
 		if [ $? -eq 0 ]; then
     			echo "freebayes instance $1 completed successfully." >> freebayes.log
 			rm fb.$1.error.log
@@ -516,7 +519,7 @@ if [ "$SNP" != "no" ]; then
                 #samtools view -@$SAMProc -b -1 -L mapped.$1.bed -o split.$1.bam split.bam
                 #samtools index split.$1.bam
 		echo "Starting Freebayes instance " $1 >> freebayes.log
-                freebayes -b filter.merged.bam -t mapped.$1.bed -v raw.$1.vcf -f ../reference.fasta -m 5 -q 5 -E 3 --min-repeat-entropy 1 --populations ../popmap -n 10 -F 0.1
+                freebayes -b filter.merged.bam -t mapped.$1.bed -v raw.$1.vcf -f ../reference.fasta -m 5 -q 5 -E 3 --min-repeat-entropy 1 --populations ../popmap -n 10 -F 0.1 | bcftools view -O b -o raw.$1.bcf
                 if [ $? -eq 0 ]; then
                         rm mapped.$1.bed
                 else
@@ -549,11 +552,12 @@ if [ "$SNP" != "no" ]; then
                         echo "The failed instance of FreeBayes was successfully rerun"
                         ERROR3=0
                         export ERROR3
-                        mv raw.1.vcf raw.01.vcf 2>/dev/null
-                        mv raw.2.vcf raw.02.vcf 2>/dev/null
-                        mv raw.3.vcf raw.03.vcf 2>/dev/null
-                        mv raw.4.vcf raw.04.vcf 2>/dev/null
-                        vcfcombine raw.*.vcf | sed -e 's/       \.\:/   \.\/\.\:/g' > RedoRawSNPs.vcf
+                        mv raw.1.bcf raw.01.bcf 2>/dev/null
+                        mv raw.2.bcf raw.02.bcf 2>/dev/null
+                        mv raw.3.bcf raw.03.bcf 2>/dev/null
+                        mv raw.4.bcf raw.04.bcf 2>/dev/null
+			bcftools concat --naive raw.01.bcf raw.02.bcf raw.03.bcf raw.04.bcf -O b | bcftools view -O v| sed -e 's/	\.\:/	\.\/\.\:/g' > RedoRawSNPs.vcf
+                        #bcftools  raw.*.vcf | sed -e 's/       \.\:/   \.\/\.\:/g' > RedoRawSNPs.vcf
                         mv RedoRawSNPs.vcf ../raw.$1.vcf
         fi
                 cd ..
@@ -661,26 +665,25 @@ if [ "$SNP" != "no" ]; then
 
 	rm mapped.*.bed  
 
-	mv raw.1.vcf raw.01.vcf 2>/dev/null
-	mv raw.2.vcf raw.02.vcf 2>/dev/null
-	mv raw.3.vcf raw.03.vcf 2>/dev/null
-	mv raw.4.vcf raw.04.vcf 2>/dev/null
-	mv raw.5.vcf raw.05.vcf 2>/dev/null
-	mv raw.6.vcf raw.06.vcf 2>/dev/null
-	mv raw.7.vcf raw.07.vcf 2>/dev/null
-	mv raw.8.vcf raw.08.vcf 2>/dev/null
-	mv raw.9.vcf raw.09.vcf 2>/dev/null
+	NumK=$(($PFiles/1000))
 
-	vcfcombine raw.*.vcf | sed -e 's/	\.\:/	\.\/\.\:/g' > TotalRawSNPs.vcf
+	seq 0 $NumK | parallel "ls raw.0{}*.bcf > bcf.{}.list"
+	seq 0 $NumK | parallel "bcftools concat -n -f bcf.{}.list -O b -o Collated.raw.{}.bcf"
+	#seq 0 $NumK | parallel "vcfcombine raw.0{}*.vcf | sed -e 's/    \.\:/   \.\/\.\:/g' > Collated.raw.{}.vcf"
+
+	ls Collated.raw.*.bcf > collated.bcf.list
+	bcftools concat -n -f collated.bcf.list -O b | bcftools view -O z -o  TotalRawSNPs.vcf.gz
+	#vcfcombine Collated.raw.*.vcf > TotalRawSNPs.vcf	
+
 
 	if [ ! -d "raw.vcf" ]; then
 		mkdir raw.vcf
 	fi
 
-	mv raw.*.vcf ./raw.vcf
+	mv raw.*.bcf ./raw.vcf
 
 	echo -e "\nUsing VCFtools to parse TotalRawSNPS.vcf for SNPs that are called in at least 90% of individuals"
-	vcftools --vcf TotalRawSNPs.vcf $VCFGTFLAG 0.9 --out Final --non-ref-af 0.001 --max-non-ref-af 0.9999 --mac 1 --minQ 30 &>VCFtools.log
+	vcftools --gzvcf TotalRawSNPs.vcf.gz $VCFGTFLAG 0.9 --out Final --non-ref-af 0.001 --max-non-ref-af 0.9999 --mac 1 --minQ 30 &>VCFtools.log
 fi
 
 ##Checking for possible errors
