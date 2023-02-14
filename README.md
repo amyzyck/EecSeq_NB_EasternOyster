@@ -5,7 +5,7 @@ _Amy Zyck<sup>1</sup>, Rebecca Stevick<sup>2</sup>, Marta Gomez-Chiarri<sup>2</s
 
 ## Background (project description)
 
-During the summer of 2017, exposure trials were conducted using larvae from the eastern oyster (_Crassostrea virginica_). Wild adult broodstock were collected from Ipswich, MA and Barnstable, MA, and brought into the lab and conditioned for several weeks. Oysters were spawned via thermal induction and eggs from 7 females were fertilized with sperm from 11 males. Larvae were kept in ambient, filtered sea water for 16 hours to ensure all embryos had developed to the trochophore larval stage. After 16 hours, larvae were counted and approximately ~125,000 larvae were transferred to twelve 1 L glass mesocosms and four replicate 100,000 larvae subsamples were flash frozen (T<sub>0</sub>). Ambient water was adjusted to 100 mL and larvae were allowed to acclimate for 1 hour. After acclimation, one of four treatments were randomly assigned to each mesocosm (4 per treatment): CON-Control conditions, CA- Coastal Acidification treatment of ~2800 µatm _p_CO<sub>2</sub> seawater, SE- Sewage Effluent treatment of 5% volume to volume ratio of treated sewage effluent to sea water, CASE- Coastal Acidification and Sewage Effluent treatment of 5% volume to volume ratio of treated sewage effluent to sea water ~2800 µatm _p_CO<sub>2</sub>. At 24 hours post-exposure (T<sub>24</sub>), larvae were filtered out of their experimental bottles and flash frozen to preserve the DNA and RNA. RNA was extracted from all samples, mRNA libraries were prepared and normalized, and probes were synthesized (adapter removal and biotin labeling).
+During the summer of 2017, exposure trials were conducted using larvae from the eastern oyster (_Crassostrea virginica_). Wild adult broodstock were collected from Ipswich, MA and Barnstable, MA, and brought into the lab and conditioned for several weeks. Oysters were spawned via thermal induction and eggs from 7 females were fertilized with sperm from 11 males. Larvae were kept in ambient, filtered sea water for 16 hours to ensure all embryos had developed to the trochophore larval stage. After 16 hours, larvae were counted and approximately ~125,000 larvae were transferred to twelve 1 L glass mesocosms and four replicate 100,000 larvae subsamples were flash frozen (T<sub>0</sub>). Ambient water was adjusted to 100 mL and larvae were allowed to acclimate for 1 hour. After acclimation, one of four treatments were randomly assigned to each mesocosm (4 per treatment): CON-Control conditions, CA- Coastal Acidification treatment of ~2800 µatm pCO<sub>2</sub> seawater, SE- Sewage Effluent treatment of 5% volume to volume ratio of treated sewage effluent to sea water, CASE- Coastal Acidification and Sewage Effluent treatment of 5% volume to volume ratio of treated sewage effluent to sea water ~2800 µatm pCO<sub>2</sub>. At 24 hours post-exposure (T<sub>24</sub>), larvae were filtered out of their experimental bottles and flash frozen to preserve the DNA and RNA. RNA was extracted from all samples, mRNA libraries were prepared and normalized, and probes were synthesized (adapter removal and biotin labeling).
 
 In 2017, adult oysters were collected from 4 sites in Narragansett Bay (Figure 1), with 10 individuals from each site. In 2020, 10 adult oysters were collected from each of 4 additional sites in Narragansett Bay and the Narrow River site was resampled to serve as a control across sampling years (Figure 2). Rectum, gill, and mantle tissue was dissected from each sample. DNA was then extracted from the tissue following the DNeasy Blood and Tissue extraction protocol and sheared down to 150 base pair fragments. Environmental data was also collected from each sample site by deployed data loggers or fixed site monitoring from other groups. The collected environmental data includes: temperature, salinity, pH, dissolved oxygen, and chlorophyll-a concentrations. We also calculated the potential influence of sewage effluent at each site by identifying wastewater treatment facilities in close proximity to each site (Figure 3) and determining the outflow from each facility.
 
@@ -54,17 +54,18 @@ The probes, generated from the larval oyster mRNA, were then hybridized with the
 
 
 ## Sampling Map
-**Figure 1:** Adult oyster individuals were sampled from 4 different sites in Narragansett Bay, RI in 2017.
 
 ![SampleMap](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Output/OG4_sites.png)
 
-**Figure 2:** The 8 adult oysters sites sampled in Narragansett Bay, RI in 2017 and 2020.
+**Figure 1:** Adult oyster individuals were sampled from 4 different sites in Narragansett Bay, RI in 2017.
 
 ![FullSampleMap](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Output/NB_FinalSampledSites_11092020.jpg)
 
-**Figure 3:** Wastewater Treatment Facilities in Rhode Island and Massachusetts that have outflow into Narragansett Bay. Wastewater treatment facilities are blue, original four sample sites are red.
+**Figure 2:** The 8 adult oysters sites sampled in Narragansett Bay, RI in 2017 and 2020.
 
 ![Facilities](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Output/SE_sites.png)
+
+**Figure 3:** Wastewater Treatment Facilities in Rhode Island and Massachusetts that have outflow into Narragansett Bay. Wastewater treatment facilities are blue, original four sample sites are red.
 
 
 ## References
