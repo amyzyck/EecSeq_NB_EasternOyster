@@ -60,7 +60,7 @@ The probes, generated from the larval oyster mRNA, were then hybridized with the
 
 **Figure 2:** The 8 adult oysters sites sampled in Narragansett Bay, RI in 2017 and 2020.
 
-![FullSampleMap]()
+![FullSampleMap](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Output/NB_FinalSampledSites_11092020.jpg)
 
 **Figure 3:** Wastewater Treatment Facilities in Rhode Island and Massachusetts that have outflow into Narragansett Bay. Wastewater treatment facilities are blue, original four sample sites are red.
 
