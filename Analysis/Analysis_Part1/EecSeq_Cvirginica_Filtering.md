@@ -4,7 +4,7 @@ Author: Amy Zyck
 
 Last Edited: March 12, 2021
 
-EecSeq reads were demultiplexed and underwent quality control, alignment to the Eastern Oyster genome (+ Haplotig Masked Genome), and variant calling for Single Nucleotide Polymorphisms (SNPs). The bioinformatic steps can be accessed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/EecSeq_Cvirginica_dDocent.md)
+EecSeq reads were demultiplexed and underwent quality control, alignment to the Eastern Oyster genome (+ Haplotig Masked Genome), and variant calling for Single Nucleotide Polymorphisms (SNPs). The bioinformatic steps can be accessed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/Analysis_Part1/EecSeq_Cvirginica_dDocent.md)
 
 # Variant Filtering
 
@@ -646,4 +646,4 @@ Run Time = 15.00 seconds
 
 **Continue on to Outlier Detection using `SNP.TRSdp5g5mafMIp9g9dnDNAmaf052Ahap.recode.vcf` for the masked haplotig genome**
 
-Steps for Outlier Detection can be accessed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/EecSeq_Cvirginica_OutlierDetection.md)
+Steps for Outlier Detection can be accessed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/Analysis_Part1/EecSeq_Cvirginica_OutlierDetection.md)

@@ -59,9 +59,9 @@ $ cd NB_capture # navigates into this new directory
 The raw data was uploaded to KITT by [J. Puritz](https://github.com/jpuritz).
 
 ```
-$ ln -s /RAID_STORAGE2/azyck/NB_capture /home/azyck
+$ ln -s /RAID_STORAGE2/azyck/NB_capture /home/azyck/NB_capture
 
-# NP_capture directory (containing all files) within RAID_STORAGE2 will be linked to the azyck home directory in KITT
+# NB_capture directory (containing all files) within RAID_STORAGE2 will be linked to the azyck home directory in KITT
 ```
 
 ### 2. FastQC Analysis
@@ -73,7 +73,7 @@ $ conda install -c bioconda fastqc
 $ fastqc ../*fastq.gz
 $ mv *fastqc.* multiplexed_fastqc_results/ # moves fastqc files to fastqc directory
 ```
-> [FastQC](https://dnacore.missouri.edu/PDF/FastQC_Manual.pdf) is a program designed to visualize the quality of high throughput sequencing datasets. The report will highlight any areas where the data looks unsual or unreliable.
+> [FastQC](https://dnacore.missouri.edu/PDF/FastQC_Manual.pdf) is a program designed to visualize the quality of high throughput sequencing datasets. The report will highlight any areas where the data looks unusual or unreliable.
 
 **Multiqc Analysis**
 
@@ -701,7 +701,7 @@ Using [**dDocent**](http://www.ddocent.com/)
 
 **Jon downloaded a version of dDocent on my KITT account `dDocent_ngs` that can be used for Expressed Exome Capture Sequencing (EecSeq). It is located in the `NB_capture` directory**
 
-If this is your first time running dDocent, I recommed going through the [Quick Start Guide](http://www.ddocent.com/quick/). I also recommend:
+If this is your first time running dDocent, I recommend going through the [Quick Start Guide](http://www.ddocent.com/quick/). I also recommend:
 
 1. Reading through the [User Guide](http://www.ddocent.com/UserGuide/).
 2. Completing the [Assembly Tutorial](http://www.ddocent.com/assembly/), using the simulated dataset.
@@ -832,13 +832,13 @@ $ mv #file_name_here reference.fasta
 
 **Read Mapping**
 
-Read mapping has to be performed at least once before SNP calling. If trimming and assembly remains the same when using dDocent repeatly, then read mapping is not necessary. A (match score), B (mismatch score), and 0 (gap penalty) parameters are used.
+Read mapping has to be performed at least once before SNP calling. If trimming and assembly remains the same when using dDocent repeatedly, then read mapping is not necessary. A (match score), B (mismatch score), and 0 (gap penalty) parameters are used.
 
 *Match Score*: score for a matching base.
 
 *Mismatch Score*: score for a mismatching base.
 
-*Gap Penalty*: Mutations, caused by either insertions or deletions, are annotated as gaps in the sequence and refered to as indels. These gaps are represented as dashes in the alignment. Optimization of gap penalty allows for the most accurate alignment possible. This will avoid low scores in alignments. Too small of a gap penalty will prevent a high level of alignment, and too large of a gap penalty will prevent accurate alignments.
+*Gap Penalty*: Mutations, caused by either insertions or deletions, are annotated as gaps in the sequence and referred to as indels. These gaps are represented as dashes in the alignment. Optimization of gap penalty allows for the most accurate alignment possible. This will avoid low scores in alignments. Too small of a gap penalty will prevent a high level of alignment, and too large of a gap penalty will prevent accurate alignments.
 
 ```
 $ bash dDocent_ngs
@@ -942,7 +942,7 @@ $ export -f filter_bam
 $ cat namelist | parallel -j 8 "filter_bam {} > {}.F.bam"
 ```
 
-Now, megre all the individual bam files into a single bam file for easier parallelized variant calling.
+Now, merge all the individual bam files into a single bam file for easier parallelized variant calling.
 
 ```
 $ ls *.F.bam > bam.list
@@ -1101,4 +1101,4 @@ After filtering, kept 48598546 out of a possible 48598546 Sites
 Run Time = 653.00 seconds
 ```
 
-Filtering for each VCF file was then performed and documented [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/EecSeq_Cvirginica_Filtering.md)
+Filtering for each VCF file was then performed and documented [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/Analysis_Part1/EecSeq_Cvirginica_Filtering.md)
