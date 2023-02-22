@@ -1,4 +1,4 @@
-# *Crassostrea virginica* EecSeq Seascape Genomics Re - Analysis - SNP Filtering
+# *Crassostrea virginica* EecSeq Seascape Genomics Re-Analysis - SNP Filtering
 
 Author: Amy Zyck
 
