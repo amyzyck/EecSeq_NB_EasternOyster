@@ -1,0 +1,392 @@
+---
+title: "NB PopSeaGen Neutral SNPs 6 pops"
+author: "Amy Zyck"
+date: '2023-03-16'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Population analyses on Neutral SNP dataset for 6 populations
+
+I first created a new directory `NeutralSNPs_6` within `PATH: /home/azyck/NB_capture_both/NB_ddhaplo/NB_PopSeaGenAnalysis/`. I linked `neutralloci6.recode.vcf` and the working `strata_6pops` file (environmental and pop info for each individual) to this working directory. The RMarkdown file should be saved in this same working directory. 
+
+
+```{r}
+#Loading all the necessary packages
+library(adegenet)
+library(vcfR)
+library("radiator") # Conversion from vcf to a lot of other formats
+library("dplyr")
+library("hierfstat")
+library("ggplot2") #For plotting
+library("reshape2") #For plotting
+library("plyr")
+library("cowplot") #For plotting manuscript figs
+library(PCAviz)  #Visualizing output of PCA
+library("stringr")
+library("bigsnpr") # package for Linkage Disequilibrium pruning
+```
+
+
+# Neutral SNPs (6 populations)
+
+## Making files
+
+**Make genind object**
+
+```{r}
+my_vcf_neut6 <- read.vcfR("neutralloci6.recode.vcf")
+strata_neut6 <- read.table("strata_6pops", header=TRUE)
+```
+
+```{r}
+rad_neut6.filt <- vcfR2genind(my_vcf_neut6, strata = strata_neut6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+```
+
+```{r}
+rad_neut6.filt
+```
+
+```{r}
+#Providing population names for plotting
+pop_order_6pops <- c("BAR","BIS","GB","KIC","MCD","PVD")
+```
+
+**Read in the other info from .strata file and extract information such as locality, latitude, and longitude.**
+```{r}
+info_neut6 <- as.data.frame(read.table("strata_6pops",header = T,sep = "\t",stringsAsFactors = F))
+mystrats_neut6 <- as.data.frame(matrix(nrow = length(indNames(rad_neut6.filt)),ncol=9))
+colnames(mystrats_neut6) <- c("Population","Latitude","Longitude","Distance","SE","Temperature","Salinity","pH","DO")
+just_neut6.strats <- select(info_neut6,c("Population"))
+stratted_neut6.filt <- strata(rad_neut6.filt, formula= Population, combine = TRUE,just_neut6.strats)
+stratted_neut6.filt@other <- select(info_neut6,Latitude.,Longitude.,SewageEffluent,Temperature,Salinity,pH,DO.)
+```
+
+```{r}
+stratted_neut6.filt
+```
+
+
+**Make hierfstat object**
+```{r}
+hf_neut6.filt <- genind2hierfstat(rad_neut6.filt, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+```
+
+## Pairwise Fst
+
+```{r}
+fst_neut6.mat <- pairwise.WCfst(hf_neut6.filt)
+```
+
+
+```{r}
+gindF_neut6.fst.mat.triN <- as.matrix(fst_neut6.mat)
+colnames(gindF_neut6.fst.mat.triN) <- pop_order_6pops
+rownames(gindF_neut6.fst.mat.triN) <- pop_order_6pops
+```
+
+```{r}
+meltedN_neut6 <- melt(gindF_neut6.fst.mat.triN, na.rm =TRUE)
+round(gindF_neut6.fst.mat.triN,4)
+```
+
+```{r}
+summary(meltedN_neut6$value)
+```
+
+```{r}
+#Plotting Pairwise fst
+neut6 <- ggplot(data = meltedN_neut6, aes(Var2, Var1, fill = value))+ geom_tile(color = "white")+ 
+  scale_fill_gradient(low = "white", high = "chocolate1", name="FST")  +
+  ggtitle(expression(atop("Pairwise FST, WC (1984) Neutral SNPs for 6 Populations", atop(italic("N = 60, L = 45,841"), ""))))+
+  labs( x = "Sampling Site", y = "Sampling Site") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),axis.text.y = element_text(size = 12)) + 
+  theme(axis.title = element_text(size = 12),legend.text = element_text(size =14), legend.title = element_text(size =14)) +
+  theme(plot.title = element_text(size = 14)) +
+coord_fixed()
+neut6
+```
+
+# Seascape Redundancy Analysis
+
+This code follows that documented by [Tom Jenkins](https://github.com/Tom-Jenkins/seascape_rda_tutorial).
+
+## [Prepare genetic data for redundancy analysis](https://github.com/Tom-Jenkins/seascape_rda_tutorial/blob/master/1.Prepare_genetic_data/1.prepare_genetic_data.R).
+
+#### Notes before execution:
+1. Make sure all required R packages are installed.
+2. Set working directory to the location of this R script.
+
+```{r}
+# Load packages
+library(adegenet)
+library(poppr)
+library(dplyr)
+library(reshape2)
+library(ggplot2)
+library(vcfR)
+```
+
+```{r}
+# Explore data
+rad_neut6.filt
+nLoc(rad_neut6.filt) # number of loci
+nPop(rad_neut6.filt) # number of sites
+nInd(rad_neut6.filt) # number of individuals
+summary(rad_neut6.filt$pop) # sample size
+```
+
+```{r}
+# Calculate allele frequencies for each site
+allele_freqs_neut6 = data.frame(rraf(rad_neut6.filt, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+```
+
+```{r}
+# Keep only the first of the two alleles for each SNP (since p=1-q).
+allele_freqs_neut6 = allele_freqs_neut6[, seq(1, dim(allele_freqs_neut6)[2], 2)]
+```
+
+```{r}
+# Export allele frequencies
+write.csv(allele_freqs_neut6, file = "all_allele_freqs_neut6.csv", row.names = TRUE)
+```
+
+#--------------#
+#
+# Calculate minor allele frequencies
+#
+#--------------#
+
+```{r}
+# Separate genind object by site
+site_list_neut6 = seppop(rad_neut6.filt)
+names(site_list_neut6)
+```
+
+```{r}
+# Calculate the minor allele frequency for each site
+maf_list_neut6 = lapply(site_list_neut6, FUN = minorAllele)
+```
+
+```{r}
+# Convert list to dataframe
+maf_neut6 = as.data.frame(maf_list_neut6) %>% t() %>% as.data.frame()
+```
+
+```{r}
+# Export minor allele frequencies
+write.csv(maf_neut6, file = "minor_allele_freqs_neut6.csv", row.names = TRUE)
+```
+
+# Redundancy Analysis
+
+
+```{r}
+# Load packages
+library(psych)
+library(dplyr)
+library(adespatial)
+library(vegan)
+```
+
+```{r}
+# Import genetic data
+allele_freqs_neut6 = read.csv("all_allele_freqs_neut6.csv", row.names = 1, check.names = FALSE)
+```
+
+```{r}
+# Import environmental data
+env.raw_neut6 = read.csv("environmental_data_6pops.csv", row.names = 1)
+```
+
+```{r}
+# Import spatial data
+dbmem.raw_neut6 = read.csv("dbmems_6pops.csv")
+```
+
+```{r}
+# Set seed
+set.seed(123)
+```
+
+
+#--------------#
+#
+# Multicollinearity checks
+#
+#--------------#
+
+```{r}
+# Plot and run correlation test on environmental variables
+pairs.panels(env.raw_neut6, scale = TRUE)
+```
+
+```{r}
+# Remove correlated variables
+env.data_neut6 = subset(env.raw_neut6, select = -c(Latitude,Longitude))
+pairs.panels(env.data_neut6, scale = TRUE)
+```
+
+
+#--------------#
+#
+# Identify significant variables
+#
+#--------------#
+
+```{r}
+# Use forward selection to identify significant environmental variables
+Y_neut6 = allele_freqs_neut6
+X_neut6 = env.data_neut6
+env.for_neut6 = forward.sel(Y_neut6, X_neut6, alpha = TRUE)
+env.for_neut6
+```
+
+```{r}
+# Use forward selection to identify significant dbmems
+dbmem.for_neut6 = forward.sel(Y = allele_freqs_neut6, X = dbmem.raw_neut6, alpha = TRUE)
+dbmem.for_neut6
+```
+
+
+```{r}
+# Subset only significant independent variables to include in the RDA
+env.sig_neut6 = subset(env.data_neut6, select = env.for_neut6$variables)
+str(env.sig_neut6)
+dbmem.sig_neut6 = subset(dbmem.raw_neut6, select = dbmem.for_neut6$variables)
+str(dbmem.sig_neut6)
+```
+
+```{r}
+# Combine environmental variables and dbmems
+env.dbmems_neut6 = cbind(env.sig_neut6, dbmem.sig_neut6)
+str(env.dbmems_neut6)
+```
+
+#--------------#
+#
+# Redundancy analysis
+#
+#--------------#
+
+```{r}
+# Perform RDA with all variables
+rda1_neut6 = rda(allele_freqs_neut6 ~ ., data = env.dbmems_neut6, scale = TRUE)
+rda1_neut6
+```
+
+```{r}
+# Model summaries
+RsquareAdj(rda1_neut6) # adjusted Rsquared 
+vif.cca(rda1_neut6) # variance inflation factor (<10 OK)
+anova.cca(rda1_neut6, permutations = 1000) # full model
+anova.cca(rda1_neut6, permutations = 1000, by="margin") # per variable 
+```
+
+
+```{r}
+# Variance explained by each canonical axis
+summary(eigenvals(rda1_neut6, model = "constrained"))
+screeplot(rda1_neut6)
+```
+
+```{r}
+# Create a dataframe to correctly colour regions
+col_dframe_neut6 = data.frame("site" = rownames(allele_freqs_neut6))
+```
+
+```{r}
+# Function to add regional labels to dataframe
+addregion_6pops = function(x){
+  # If pop label is present function will output the region
+  if(x=="BAR") y = " Barrington "
+  if(x=="BIS") y = " Bissel Cove "
+  if(x=="GB") y = " Greenwich Bay "
+  if(x=="KIC") y = " Kickemuit "
+  if(x=="MCD") y = " Donovan Marsh "
+  if(x=="PVD") y = " Providence "
+  return(y)
+}
+```
+
+```{r}
+# Add regional labels
+col_dframe_neut6$region = sapply(col_dframe_neut6$site, addregion_6pops)
+```
+
+```{r}
+# Add factor levels
+region_order_6pops = c(" Barrington "," Bissel Cove "," Greenwich Bay "," Kickemuit "," Donovan Marsh ", " Providence ")
+col_dframe_neut6$region = factor(col_dframe_neut6$region, levels = region_order_6pops)
+```
+
+```{r}
+# Create colour scheme
+# blue=#000088, green=#7FC97F, orange=#FF7F00, red=#E31A1C, purple=#9A32CD, pink=#FF1493, yellow=#FFD700, cyan=#00FFFF
+cols_6pops = c("#7FC97F","#00008B","#FF7F00","#9A32CD","#FF1493","#00FFFF")
+```
+
+```{r}
+# Visualise results of RDA
+png("rda_neut6_nolegend_nodbmems.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda1_neut6, type="n", scaling = 3)
+# SITES
+points(rda1_neut6, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe_neut6$region]) # sites
+text(rda1_neut6, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda1_neut6, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda1, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe_out6$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda1_neut6)$adj.r.squared, 3)
+mtext(bquote(italic("R")^"2"~"= "~.(adj.R2)), side = 3, adj = 0.5)
+dev.off()
+```
+
+#--------------#
+#
+# Partial redundancy analysis
+#
+#--------------#
+
+```{r}
+# Perform RDA while controlling for geographical location
+pRDA_neut6 = rda(allele_freqs_neut6 ~ Temperature + DO + pH + SewageEffluent + Condition(MEM2+MEM1),
+           data = env.dbmems_neut6, scale = TRUE)
+pRDA_neut6
+RsquareAdj(pRDA_neut6) # adjusted Rsquared 
+vif.cca(pRDA_neut6) # variance inflation factor (<10 OK)
+anova.cca(pRDA_neut6, permutations = 1000) # full model
+anova.cca(pRDA_neut6, permutations = 1000, by = "margin") # per variable
+```
+
+```{r}
+# Visualise results of pRDA
+png("partial_rda_neut6_nolatlong_nolegend.png", width = 9, height = 7, units = "in", res = 600)
+plot(pRDA_neut6, type="n", scaling = 3)
+#title("Seascape partial redundancy analysis")
+# SITES
+points(pRDA_neut6, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe_neut6$region]) # sites
+text(pRDA_neut6, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(pRDA_neut6, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(pRDA, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("topleft", legend=levels(col_dframe_out6$region), bty="n", col="black",
+       #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+#adj.R2 = round(RsquareAdj(pRDA)$r.squared, 3)
+#mtext(bquote(italic("R")^"2"~"= "~.(adj.R2)), side = 3, adj = 0.5)
+dev.off()
+```
+
+

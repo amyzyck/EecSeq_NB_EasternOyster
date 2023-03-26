@@ -1,0 +1,338 @@
+---
+title: "Redundancy analysis Outlier SNPs 6 pops"
+author: "Amy Zyck"
+date: '2023-03-22'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Seascape Redundancy Analysis
+
+This code follows that documented by [Tom Jenkins](https://github.com/Tom-Jenkins/seascape_rda_tutorial).
+
+## [Prepare genetic data for redundancy analysis](https://github.com/Tom-Jenkins/seascape_rda_tutorial/blob/master/1.Prepare_genetic_data/1.prepare_genetic_data.R).
+
+#### Notes before execution:
+1. Make sure all required R packages are installed.
+2. Set working directory to the location of this R script.
+
+```{r}
+# Load packages
+library(adegenet)
+library(poppr)
+library(dplyr)
+library(reshape2)
+library(ggplot2)
+library(vcfR)
+```
+
+VCF file and strata file (environmental and population info) are saved in PATH: `/home/azyck/NB_capture_both/NB_ddhaplo/PopSeaGenAnalysis/OutlierSNPs_6`
+
+```{r}
+# Preparinng the data 
+my_vcf_out6_nolfmm <- read.vcfR("6pops_outlierloci_nolfmm.recode.vcf")
+strata_out6_nolfmm <- read.table("strata_6pops", header=TRUE)
+```
+
+```{r}
+rad_out6_nolfmm.filt <- vcfR2genind(my_vcf_out6_nolfmm, strata = strata_out6_nolfmm, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+```
+
+```{r}
+rad_out6_nolfmm.filt
+```
+
+```{r}
+# Explore data -no LFMM
+rad_out6_nolfmm.filt
+nLoc(rad_out6_nolfmm.filt) # number of loci
+nPop(rad_out6_nolfmm.filt) # number of sites
+nInd(rad_out6_nolfmm.filt) # number of individuals
+summary(rad_out6_nolfmm.filt$pop) # sample size
+```
+
+```{r}
+# Calculate allele frequencies for each site - no LFMM
+allele_freqs_out6_nolfmm = data.frame(rraf(rad_out6_nolfmm.filt, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+```
+
+```{r}
+# Keep only the first of the two alleles for each SNP (since p=1-q). - no LFMM
+allele_freqs_out6_nolfmm = allele_freqs_out6_nolfmm[, seq(1, dim(allele_freqs_out6_nolfmm)[2], 2)]
+```
+
+```{r}
+# Export allele frequencies - no LFMM
+write.csv(allele_freqs_out6_nolfmm, file = "all_allele_freqs_out6_nolfmm.csv", row.names = TRUE)
+```
+
+#--------------#
+#
+# Calculate minor allele frequencies
+#
+#--------------#
+
+```{r}
+# Separate genind object by site - no LFMM
+site_list_out6_nolfmm = seppop(rad_out6_nolfmm.filt)
+names(site_list_out6_nolfmm)
+```
+
+```{r}
+# Calculate the minor allele frequency for each site - no LFMM
+maf_list_out6_nolfmm = lapply(site_list_out6_nolfmm, FUN = minorAllele)
+```
+
+```{r}
+# Convert list to dataframe - no LFMM
+maf_out6_nolfmm = as.data.frame(maf_list_out6_nolfmm) %>% t() %>% as.data.frame()
+```
+
+```{r}
+# Export minor allele frequencies - no LFMM
+write.csv(maf_out6_nolfmm, file = "minor_allele_freqs_out6_nolfmm.csv", row.names = TRUE)
+```
+
+## [Prepare environmental data for redundancy analysis](https://github.com/Tom-Jenkins/seascape_rda_tutorial/blob/master/3.Prepare_environmental_data/3.prepare_env_data.R).
+
+#### Environmental variables:
+- Sewage Effluent (PW stats)
+- Mean temperature (deg C)
+- Mean Salinity (psu)
+- Mean pH
+- Mean Dissolved Oxygen (mg/L)
+
+Environmental data for each population is saved in a `strata_pop6` file that can be accessed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/strata_pop)
+
+```{r}
+# All environmental data was previously saved in strata file 
+strata_pop6 <- read.table("strata_6pops", header=TRUE)
+strata_pop6
+```
+
+```{r}
+# Export data as a csv file
+write.csv(strata_pop6, file="environmental_data.csv", row.names = FALSE)
+```
+
+I also prepared spatial data for the redundancy analysis which is documented [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/PopGen_SeaGen_Analyses/RedundancyAnalysis/PrepSpatialData.Rmd).
+
+Allele frequency, environmental, and spatial csv files are saved to your working directory and must be imported into the Rscript to run the redundancy analysis. 
+Working directory `/home/azyck/NB_capture_both/NB_ddhaplo/PopSeaGenAnalysis/OutlierSNPs_6`
+
+# Redundancy Analysis
+
+```{r}
+# Load packages
+library(psych)
+library(dplyr)
+library(adespatial)
+library(vegan)
+```
+
+```{r}
+# Import genetic data - no LFMM
+allele_freqs_out6_nolfmm = read.csv("all_allele_freqs_out6_nolfmm.csv", row.names = 1, check.names = FALSE)
+```
+
+```{r}
+# Import environmental data
+env.raw_out6 = read.csv("environmental_data_6pops.csv", row.names = 1)
+```
+
+```{r}
+# Import spatial data
+dbmem.raw_out6 = read.csv("dbmems_6pops.csv")
+```
+
+```{r}
+# Set seed
+set.seed(123)
+```
+
+
+#--------------#
+#
+# Multicollinearity checks
+#
+#--------------#
+
+```{r}
+# Plot and run correlation test on environmental variables
+pairs.panels(env.raw_out6, scale = TRUE)
+```
+
+```{r}
+# Remove correlated variables
+env.data_out6 = subset(env.raw_out6, select = -c(Latitude,Longitude))
+pairs.panels(env.data_out6, scale = TRUE)
+```
+
+```{r}
+#standardize the environmental data 
+# Scale and center variables
+env.z_out6 <- decostand(env.data_out6, method = "standardize")
+# Variables are now centered around a mean of 0
+round(apply(env.z_out6, 2, mean), 1)
+# and scaled to have a standard deviation of 1
+apply(env.z_out6, 2, sd)
+```
+
+```{r}
+# Combine all environmental variables and dbmems - no LFMM
+env.full_out6_nolfmm = cbind(env.z_out6, dbmem.raw_out6)
+str(env.full_out6_nolfmm)
+```
+
+#--------------#
+#
+# Identify significant variables
+#
+#--------------#
+
+```{r}
+# Use forward selection to identify significant environmental variables with ordiR2step
+# first we neeed to create a null model and then a full model 
+## Null model
+RDA0_out6_nolfmm <- rda(allele_freqs_out6_nolfmm ~ 1,  env.full_out6_nolfmm) 
+
+## Full model
+RDAfull_out6_nolfmm <- rda(allele_freqs_out6_nolfmm ~ SewageEffluent + Temperature + Salinity + pH + DO, env.full_out6_nolfmm)
+```
+
+```{r}
+adjR2.RDAfull_out6_nolfmm <- RsquareAdj(RDAfull_out6_nolfmm)$adj.r.squared
+```
+
+```{r} 
+# Running ordiR2step to identify significant environmental variables in the model 
+mod <- ordiR2step(RDA0_out6_nolfmm, scope = formula(RDAfull_out6_nolfmm), Pin = 0.1, permutations = 1000, R2scope = FALSE)
+```
+
+Only pH is identified, but the p-value is 0.1444. I couldn't run ordiR2step with R2scope as true. This parameter uses adjusted R2 as the stopping criterion - only models with lower adjusted R2 than the scope are accepted. 
+
+
+#--------------#
+#
+# Redundancy analysis
+#
+#--------------#
+
+```{r}
+# Perform RDA with all variables - no LFMM
+rda1_out6_nolfmm = rda(allele_freqs_out6_nolfmm ~ pH, data = env.full_out6_nolfmm, scale = TRUE)
+rda1_out6_nolfmm
+```
+
+```{r}
+# Model summaries - no LFMM
+RsquareAdj(rda1_out6_nolfmm) # adjusted Rsquared 
+vif.cca(rda1_out6_nolfmm) # variance inflation factor (<10 OK)
+anova.cca(rda1_out6_nolfmm, permutations = 1000) # full model
+anova.cca(rda1_out6_nolfmm, permutations = 1000, by="margin") # per variable 
+```
+
+```{r}
+# Variance explained by each canonical axis - no LFMM
+summary(eigenvals(rda1_out6_nolfmm, model = "constrained"))
+screeplot(rda1_out6_nolfmm)
+```
+
+```{r}
+# Create a dataframe to correctly colour regions - no LFMM
+col_dframe_out6_nolfmm = data.frame("site" = rownames(allele_freqs_out6_nolfmm))
+```
+
+```{r}
+# Function to add regional labels to dataframe
+addregion_6pops = function(x){
+  # If pop label is present function will output the region
+  if(x=="BAR") y = " Barrington "
+  if(x=="BIS") y = " Bissel Cove "
+  if(x=="GB") y = " Greenwich Bay "
+  if(x=="KIC") y = " Kickemuit "
+  if(x=="MCD") y = " Donovan Marsh "
+  if(x=="PVD") y = " Providence "
+  return(y)
+}
+```
+
+```{r}
+# Add regional labels - no LFMM
+col_dframe_out6_nolfmm$region = sapply(col_dframe_out6_nolfmm$site, addregion_6pops)
+```
+
+```{r}
+# Add factor levels
+region_order_6pops = c(" Barrington "," Bissel Cove "," Greenwich Bay "," Kickemuit "," Donovan Marsh ", " Providence ")
+col_dframe_out6_nolfmm$region = factor(col_dframe_out6_nolfmm$region, levels = region_order_6pops)
+```
+
+```{r}
+# Create colour scheme
+# blue=#000088, green=#7FC97F, orange=#FF7F00, red=#E31A1C, purple=#9A32CD, pink=#FF1493, yellow=#FFD700, cyan=#00FFFF
+cols_6pops = c("#7FC97F","#00008B","#FF7F00","#9A32CD","#FF1493","#00FFFF")
+```
+
+```{r}
+# Visualise results of RDA
+png("rda_out6_nolfmm_pH.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda1_out6_nolfmm, type="n", scaling = 3)
+# SITES
+points(rda1_out6_nolfmm, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe_out6_nolfmm$region]) # sites
+text(rda1_out6_nolfmm, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda1_out6_nolfmm, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda1, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe_out6$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda1_out6_nolfmm)$adj.r.squared, 3)
+mtext(bquote(italic("R")^"2"~"= "~.(adj.R2)), side = 3, adj = 0.5)
+dev.off()
+```
+
+#--------------#
+#
+# Partial redundancy analysis
+#
+#--------------#
+
+```{r}
+# Perform RDA while controlling for geographical location - no LFMM
+pRDA_out6_nolfmm = rda(allele_freqs_out6_nolfmm ~ pH + Condition(MEM1+MEM2),
+           data = env.full_out6_nolfmm, scale = TRUE)
+pRDA_out6_nolfmm
+RsquareAdj(pRDA_out6_nolfmm) # adjusted Rsquared 
+vif.cca(pRDA_out6_nolfmm) # variance inflation factor (<10 OK)
+anova.cca(pRDA_out6_nolfmm, permutations = 1000) # full model
+anova.cca(pRDA_out6_nolfmm, permutations = 1000, by = "margin") # per variable
+```
+
+# Trying out a distance based RDA (dbRDA)
+```{r}
+rankindex(env.full_out6_nolfmm, allele_freqs_out6_nolfmm, indices = c("euc", "man", "gow","bra", "kul"), stepacross= FALSE, method = "spearman")
+```
+
+```{r}
+dbRDA_out6_noflmm = capscale(allele_freqs_out6_nolfmm ~ pH, env.full_out6_nolfmm, dist="kul")
+```
+
+```{r}
+plot(dbRDA_out6_noflmm) # use base plot, might be done with ggplot2
+anova(dbRDA_out6_noflmm) # is the model significant?
+```
+
+```{r}
+anova(dbRDA_out6_noflmm) # overall test of the significant of the analysis
+anova(dbRDA_out6_noflmm, by="axis", perm.max=500) # test axes for significance
+anova(dbRDA_out6_noflmm, by="terms", permu=200) # test for sign. environ. variables
+```
