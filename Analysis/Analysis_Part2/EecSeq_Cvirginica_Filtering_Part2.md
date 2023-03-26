@@ -567,4 +567,4 @@ Run Time = 14.00 seconds
 
 **Continue on to Outlier Detection using `SNP.TRSBOTHdp5g5mafMIp9g9dnDNAmaf052A.recode.vcf`**
 
-Steps for Outlier Detection can be accessed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/Analysis_Part2/EecSeq_Cvirginica_OutlierDetection_Part2.md)
+Steps for Outlier Detection can be accessed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/Analysis_Part2/NB_OutlierDetection_6pops.Rmd)
