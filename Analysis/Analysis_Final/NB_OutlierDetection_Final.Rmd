@@ -1,0 +1,2524 @@
+---
+title: "NB Outlier Detection 6 populations"
+author: "Amy Zyck"
+date: '2024-07-10'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Outlier Detection for new set of samples for 6 populations (NAR and GHP excluded)
+
+Documentation for read trimming, mapping, variant calling, and SNP filtering can be accessed [here](). Four outlier detection programs were used to identify outlier SNPs (putatively under selection). pcadapt, OutFLANK, and BayeScan identify outliers based on population structure. LFMM2 identifies outliers based on associations with environmental predictors. 
+
+In terminal: 
+
+In `NB_ddhaplo_working` directory, make new directory for outlier detection and link vcf files and popmap file
+
+```
+$ mkdir NB_OutlierDetection_working
+$ cd NB_OutlierDetection_working 
+
+$ cp ../NB_SNPFiltering_working/SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf.gz . 
+$ cp ../NB_SNPFiltering_working/popmap . 
+```
+
+Unzipping gzipped vcf file
+
+```
+$ gzip -d SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf.gz
+```
+
+In R: 
+
+## 1. pcadapt
+
+```{r}
+# install and load pcadapt
+#install.packages("pcadapt")
+library(pcadapt)
+```
+
+```{r}
+# Convert VCF file to pcadapt format
+
+vcf2pcadapt("SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf", output = "tmp.pcadapt", allele.sep = c("/", "|"))
+
+filename <- read.pcadapt("tmp.pcadapt", type = "pcadapt")
+```
+
+```{r}
+# Choosing the number K of Principal Components
+# We start off with a large number of PCs
+x6 <- pcadapt(input = filename, K = 20)
+```
+
+```{r}
+# Plot the likelihoods using a screeplot
+plot(x6, option = "screeplot")
+```
+
+```{r}
+# Plotting likelihoods again, but with 10 Principal Components
+plot(x6, option = "screeplot", K = 10)
+```
+
+```{r}
+# Create population designations minus NAR, NAR2, GHP
+poplist.names6 <- c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10), rep("KIC", 10),rep("MCD", 10), rep("PVD", 10))
+```
+
+```{r}
+# Score Plot
+# Plot the first two PCs
+plot(x6, option = "scores", pop = poplist.names6)
+```
+
+```{r}
+# PCA plot with PCs 3 and 4
+plot(x6, option = "scores", i = 3, j = 4, pop = poplist.names6)
+```
+
+```{r}
+#evaluating LD in dataset - looking to see if loading are clustered in certain genomic regions (following https://bcm-uga.github.io/pcadapt/articles/pcadapt.html#f--linkage-disequilibrium-ld-thinning)
+par(mfrow = c(2, 2))
+for (i in 1:4)
+  plot(x6$loadings[, i], pch = 19, cex = .3, ylab = paste0("Loadings PC", i))
+```
+
+Top left, PC1, is determined by one (maybe 2) genomic regions, also likely still an inversion. To minimize outlier detection based on LD, I can apply LD thinning. I'm going to use the default values for window size and r2 threshold for pcadapt (size = 500, thr = 0.1).
+
+```{r}
+# performing SNP thinning in order to compute PCs
+res6 <- pcadapt(filename, K = 10, LD.clumping = list(size = 500, thr = 0.1))
+plot(res6, option = "screeplot")
+```
+
+Based on this scree plot, it's not super clear where the elbow is (where total variance starts to drop off). I'm going to try a few different PC values moving forward. After some exploratory testing, I am moving forward with K = 4.
+
+```{r}
+# Score Plot
+# Plot the first two PCs
+plot(res6, option = "scores", pop = poplist.names6)
+```
+
+```{r}
+# PCA plot with PCs 3 and 4
+plot(res6, option = "scores", i = 3, j = 4, pop = poplist.names6)
+```
+
+```{r}
+res6 <- pcadapt(filename, K = 4, LD.clumping = list(size = 500, thr = 0.1))
+par(mfrow = c(1,1))
+for (i in 1)
+  plot(res6$loadings[, i], pch = 19, cex = .3, ylab = paste0("Loadings PC", i))
+```
+
+No evidence of the inversions show up in the PC1 loadings.
+
+```{r}
+plot(res6)
+```
+
+We still see some evidence of the inversions in the manhattan plot, however, this may be due to stronger selective pressures in the inverted regions.
+
+```{r}
+#evaluating LD in dataset - looking to see if loading are still clustered in certain genomic regions (following https://bcm-uga.github.io/pcadapt/articles/pcadapt.html#f--linkage-disequilibrium-ld-thinning)
+par(mfrow = c(2, 2))
+for (i in 1:4)
+  plot(res6$loadings[, i], pch = 19, cex = .3, ylab = paste0("Loadings PC", i))
+```
+
+```{r}
+res6$singular.values
+```
+
+```{r}
+# Create Q-Q Plot
+plot(res6, option = "qqplot", threshold = 0.1)
+```
+
+```{r}
+hist(res6$pvalues, xlab = "p-values", main = NULL, breaks = 50, col = "orange")
+```
+
+```{r}
+# Look at p-value distribution 
+plot(res6, option = "stat.distribution")
+```
+
+#### Assigning an alpha value
+
+```{r}
+library(qvalue) # transforms p-values into q-values.
+```
+
+```{r}
+qval6 <- qvalue(res6$pvalues)$qvalues
+alpha6 <- 0.1 # expected false discovery rate lower than 1% - raised from 0.05
+```
+
+#### Save Outliers
+
+```{r}
+outliers6 <- which(qval6 < alpha6)
+outliers6
+```
+
+With a K = 4, and LD clumping with a window size = 500 bp and squared correlation threshold = 0.1, 58 outlier SNPs were identified.
+
+```{r}
+# Save outliers to .txt file 
+invisible(lapply(outliers6, write, "outliers_pcadapt_thinned500.txt", append=TRUE))
+```
+
+## 2. OutFLANK
+
+```{r}
+# Load all necessary packages
+library(OutFLANK)  # outflank package
+library(vcfR)
+library(bigsnpr)   # package for Linkage Disequilibrium pruning
+```
+
+```{r}
+# Convert VCF to OutFLANK format
+my_vcf6 <- read.vcfR("SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf")
+
+geno6 <- extract.gt(my_vcf6) # Character matrix containing the genotypes
+position6 <- getPOS(my_vcf6) # Positions in bp
+chromosome6 <- getCHROM(my_vcf6) # Chromosome information
+
+G6 <- matrix(NA, nrow = nrow(geno6), ncol = ncol(geno6))
+
+G6[geno6 %in% c("0/0", "0|0")] <- 0
+G6[geno6  %in% c("0/1", "1/0", "1|0", "0|1")] <- 1
+G6[geno6 %in% c("1/1", "1|1")] <- 2
+
+# NA should be replaced with “9” to work with the functions in the OutFLANK package
+G6[is.na(G6)] <- 9
+
+head(G6[,1:10])
+```
+
+```{r}
+# Convert pop designations to a vector
+pop6 <- as.vector(poplist.names6)
+pop6
+```
+
+```{r}
+# Calculate Fst
+my_fst6 <- MakeDiploidFSTMat(t(G6), locusNames = paste0(chromosome6,"_", position6), popNames = pop6)
+
+head(my_fst6)
+# the output will be a table showing Fst statistics for each locus
+```
+
+```{r}
+# Plot heterozygosity vs Fst
+plot(my_fst6$He, my_fst6$FST)
+```
+
+```{r}
+# Plot Fst vs FstNoCorr
+plot(my_fst6$FST, my_fst6$FSTNoCorr)
+abline(0,1)
+```
+
+### We need to give OUTFlank a set of quasi-independent SNPs to estimate the neutral FST distribution.
+
+```{r}
+# Load additional packages
+library("dplyr")
+library("stringr")
+```
+
+```{r}
+# Chromosomes need to be of class integer for this to work.
+# Visualizing chromosomes
+chrom_unique6 <- unique(chromosome6)
+print(chrom_unique6)
+```
+
+```{r}
+# Removing "NC_" from the chromosome name so it can be converted to an integer
+chrom_new6 <- chromosome6%>%str_replace("NC_","")
+
+# Converting the character string into an integer
+chrom6 <- as.integer(chrom_new6)
+```
+
+```{r}
+#chromosome and position need to be sorted for imputation to work.
+chrom_sort6 <- sort(chrom6)
+pos_sort6 <- sort(position6)
+```
+
+### Note: This filtering program does not allow for missing genotype values.
+
+Using `snp_fastImputeSimple` to impute missing genotypes
+
+```{r}
+# Converting the genotype matrix to class FBM.code256
+G1_6 <- add_code256(big_copy(t(G6),type="raw"),code=bigsnpr:::CODE_012)
+
+# Imputing missing genotypes
+G_missSimple6 <- snp_fastImputeSimple(G1_6, method = "mode")
+```
+
+The method of imputation can be either "random" (sampling according to allele frequencies), "mean0" (rounded mean), "mean2" (rounded mean to 2 decimal places), "mode" (most frequent call). "Random" makes the most sense to me because imputation would be based on similar allele frequencies (more likely to fill in potential outliers) rather than generalized based on mean or most frequently called. I tested all four methods and 0 outliers were identified for all, so it doesn't seem to make a difference in this data set.
+
+```{r}
+newpc6 <-snp_autoSVD(G_missSimple6,infos.chr = chrom_sort6,infos.pos = pos_sort6)
+which_pruned6 <- attr(newpc6, which="subset") # Indexes of remaining SNPS after pruning
+length(which_pruned6)
+head(which_pruned6)
+```
+
+### Run the OutFLANK() function to estimate the parameters on the neutral FST distribution.
+
+```{r}
+out_trim6 <- OutFLANK(my_fst6[which_pruned6,], NumberOfSamples=60, qthreshold = 0.05, Hmin = 0.1)
+str(out_trim6)
+```
+
+```{r}
+# Check the fit and make sure it looks good, especially in the right tail:
+OutFLANKResultsPlotter(out_trim6, withOutliers = TRUE, NoCorr = TRUE, Hmin = 0.1,binwidth = 0.001, Zoom = FALSE, RightZoomFraction = 0.05, titletext = NULL)
+```
+
+```{r}
+# Check the p-value histogram
+hist(out_trim6$results$pvaluesRightTail)
+```
+
+```{r}
+# Using estimated neutral mean FST and df to calculate P-values for all loci
+P1_6 <- pOutlierFinderChiSqNoCorr(my_fst6, Fstbar = out_trim6$FSTNoCorrbar, dfInferred = out_trim6$dfInferred, qthreshold = 0.05, Hmin=0.1)
+```
+
+```{r}
+# Identify outliers SNPs
+my_out6 <- P1_6$OutlierFlag==TRUE
+plot(P1_6$He, P1_6$FST, pch=19, col=rgb(0,0,0,0.1))
+points(P1_6$He[my_out6], P1_6$FST[my_out6], col="blue")
+```
+
+```{r}
+P1_6[which(P1_6$OutlierFlag == TRUE),]
+
+outliers_out6 <- P1_6[which(P1_6$OutlierFlag == TRUE),]
+outliers_list6 <- outliers_out6$LocusName
+outliers_list6
+```
+
+No outliers detected
+
+## 3. BayeScan
+
+In terminal:
+
+**Convert VCF file to other outputs**
+
+```
+# load in configuration file that will convert VCF to BayeScan format
+$ curl -L -O https://raw.githubusercontent.com/amyzyck/EecSeq_NB_EasternOyster/master/Scripts/BSsnp.spid
+$ chmod +x BSsnp.spid
+
+$ java -jar /usr/local/bin/PGDSpider2-cli.jar -spid BSsnp.spid -inputfile SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf -outputfile SNP6p9g9.BS
+
+output:
+WARN  12:07:05 - PGDSpider configuration file not found! Loading default configuration.
+initialize convert process...
+read input file...
+read input file done.
+write output file...
+write output file done.
+```
+
+**Run BayeScan**
+
+```
+$ BayeScan2.1_linux64bits SNP6p9g9.BS -thin 50 -nbp 30
+```
+
+In R:
+
+### Plotting outliers
+
+```{r}
+source("plot_R.r")
+plot_bayescan("SNP6p9g9_fst.txt")
+```
+
+```{r}
+# Identifying outliers using a False discovery rate of 10%.
+bs6p9g9 <- plot_bayescan("SNP6p9g9_fst.txt", FDR = 0.10)
+```
+
+```{r}
+bs6p9g9$outliers
+```
+
+No outliers detected
+
+
+
+
+## 4. LFMM2
+
+Following steps documented by pgugger [here](https://github.com/pgugger/LandscapeGenomics/blob/master/2019/Exercise3.md) to prep the genomic and environmental data.
+
+### loading the required libraries
+
+```{r}
+#if (!require("BiocManager", quietly = TRUE))
+#install.packages("BiocManager")
+
+#BiocManager::install("LEA")
+```
+
+```{r}
+library(LEA)
+```
+
+For LFMM, the input genomic data needs to be SNPs as genotypes encoded 0, 1, or 2 for homozygous, heterozygous, and other homozygous, respectively. Missing data is coded as "9".
+
+In terminal:
+
+    # Converting vcf to genotyped file for input
+    $ vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --012 --out snp6p9g9
+
+    # Replacing missing data with 9 and creating the .lfmm file
+    $ sed 's/-1/9/g' snp6p9g9.012 | cut -f2- > snp6p9g9.lfmm
+
+I also have a vcf file with SNPs inside known inversion removed. I want to run LFMM2 on this data set too.
+
+    $ vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A_noinvert.recode.vcf --012 --out snp6p9g9_noinvert
+
+    $ sed 's/-1/9/g' snp6p9g9_noinvert.012 | cut -f2- > snp6p9g9_noinvert.lfmm
+
+```{r}
+# run snmf to estimate K, considering K from 1-6:
+project_6p9g9 = NULL
+project_6p9g9 = snmf("snp6p9g9.lfmm", K = 1:10, entropy = TRUE, repetitions = 10, project = "new")
+#pdf("sNMF_6p9g9.pdf")
+plot(project_6p9g9, col = "blue", pch = 19, cex = 1.2)
+#dev.off()
+```
+
+Based on the plot of cross-entropy, K = 1 has the lowest cross-entropy value.
+
+```{r}
+# Generating a Structure-type plot. A K = 1 is not a very interesting plot to look at, so I also generated plots with K = 2-6. With K = 6, the individuals are spread across the 6 ancestry pops. 
+best_6p9g9 = which.min(cross.entropy(project_6p9g9, K = 6))
+# pdf("sNMF.barchart_6p9g9.pdf")
+barchart(project_6p9g9, K = 6, run = best_6p9g9, border = NA, space = 0, col = c("red", "blue","green","yellow","orange","pink"), xlab = "Individuals", ylab = "Ancestry proportions") -> bp_6p9g9
+axis(1, at = 1:length(bp_6p9g9$order), labels = bp_6p9g9$order, las=1, cex.axis = .3)
+#dev.off()
+```
+
+```{r}
+#imputing any missing data
+project.missing_6p9g9 = snmf("snp6p9g9.lfmm", K = 1,
+        entropy = TRUE, repetitions = 10,
+        project = "new")
+```
+
+```{r}
+# select the run with the lowest cross-entropy value
+best_6p9g9 = which.min(cross.entropy(project.missing_6p9g9, K = 1))
+# Impute the missing genotypes
+impute(project.missing_6p9g9, "snp6p9g9.lfmm",
+       method = 'random', K = 1, run = best_6p9g9)
+## Missing genotype imputation for K = 1
+## Missing genotype imputation for run = 6
+## Results are written in the file:  snp_.lfmm_imputed.lfmm
+# Proportion of correct imputation results
+dat.imp_6p9g9 = read.lfmm("snp6p9g9.lfmm_imputed.lfmm")
+#mean( tutorial.R[dat == 9] == dat.imp[dat == 9] )
+```
+
+Repeating with no invert dataset
+
+```{r}
+# run snmf to estimate K, considering K from 1-6:
+project_noinvert_6p9g9 = NULL
+project_noinvert_6p9g9 = snmf("snp6p9g9_noinvert.lfmm", K = 1:10, entropy = TRUE, repetitions = 10, project = "new")
+#pdf("sNMF_noinvert_6p9g9.pdf")
+plot(project_noinvert_6p9g9, col = "blue", pch = 19, cex = 1.2)
+#dev.off()
+```
+
+Based on the plot of cross-entropy, K = 1 has the lowest cross-entropy value.
+
+```{r}
+# Generating a Structure-type plot. A K = 1 is not a very interesting plot to look at, so I also generated plots with K = 2-6. With K = 6, the individuals are spread across the 6 ancestry pops. 
+best_noinvert_6p9g9 = which.min(cross.entropy(project_noinvert_6p9g9, K = 6))
+# pdf("sNMF.barchart_noinvert_6p9g9.pdf")
+barchart(project_noinvert_6p9g9, K = 6, run = best_noinvert_6p9g9, border = NA, space = 0, col = c("red", "blue","green","yellow","orange","pink"), xlab = "Individuals", ylab = "Ancestry proportions") -> bp_noinvert_6p9g9
+axis(1, at = 1:length(bp_noinvert_6p9g9$order), labels = bp_noinvert_6p9g9$order, las=1, cex.axis = .3)
+#dev.off()
+```
+
+```{r}
+#imputing any missing data
+project.missing_noinvert_6p9g9 = snmf("snp6p9g9_noinvert.lfmm", K = 1,
+        entropy = TRUE, repetitions = 10,
+        project = "new")
+```
+
+```{r}
+# select the run with the lowest cross-entropy value
+best_noinvert_6p9g9 = which.min(cross.entropy(project.missing_noinvert_6p9g9, K = 1))
+# Impute the missing genotypes
+impute(project.missing_noinvert_6p9g9, "snp6p9g9_noinvert.lfmm",
+       method = 'mode', K = 1, run = best_noinvert_6p9g9)
+## Missing genotype imputation for K = 1
+## Missing genotype imputation for run = 6
+## Results are written in the file:  snp_.lfmm_imputed.lfmm
+# Proportion of correct imputation results
+dat.imp_noinvert_6p9g9 = read.lfmm("snp6p9g9_noinvert.lfmm_imputed.lfmm")
+#mean( tutorial.R[dat == 9] == dat.imp[dat == 9] )
+```
+
+```{r}
+# Prepping the environmental data
+
+clim.env_6pops_pca_red <- read.table("./env_data_pca_reduced", header=TRUE)
+
+clim.env_6pops_pca_red <- clim.env_6pops_pca_red[,5:17]
+
+colnames(clim.env_6pops_pca_red) <- NULL
+row.names(clim.env_6pops_pca_red) <- NULL
+
+clim.env_6pops_pca_red
+
+write.table(clim.env_6pops_pca_red, "/home/azyck/NB_capture_both/NB_ddhaplo/NB_ddhaplo_working/NB_OutlierDetection_working/clim.env_6pops_pca_red.env", sep="\t", quote=F, row.names=F)
+```
+
+```{r}
+# Prepping a second env file for downstream processing of LFMM output
+clim.env_6pops_pca_red_full <- read.table("./env_data_pca_reduced", header=TRUE)
+
+env_6pops_pca_red <- clim.env_6pops_pca_red_full[,5:17]
+```
+
+### LFMM ridge
+
+I am following steps documented by B.R. Forester [here](https://bookdown.org/hhwagner1/LandGenCourse_book/WE_11.html) for running the LFMM ridge model.
+
+```{r}
+# if(!requireNamespace("qvalue", quietly = TRUE)) {  
+# if (!requireNamespace("BiocManager", quietly = TRUE))
+# install.packages("BiocManager")
+# BiocManager::install(version = "3.14")
+# BiocManager::install("qvalue")
+# }
+# if(!requireNamespace("lfmm", quietly = TRUE)) {  
+#  remotes::install_github("bcm-uga/lfmm")
+# }
+```
+
+```{r}
+library(vegan)    # Used to run PCA & RDA
+library(lfmm)     # Used to run LFMM
+library(qvalue)   # Used to post-process LFMM output
+library(vcfR)
+library(stringr)
+```
+
+### Import the genetic data
+
+```{r}
+# to make it tab separated - sed 's/ \+/\t/g' snp6p9g9.lfmm_imputed.lfmm  > snp6p9g9.lfmm_imputed_tab.lfmm
+gen6p9g9<-read.delim("snp6p9g9.lfmm_imputed_tab.lfmm",header = FALSE)
+row.names(gen6p9g9) <- c("BAR_10","BAR_1","BAR_2","BAR_3","BAR_4","BAR_5","BAR_6","BAR_7","BAR_8","BAR_9","BIS_10","BIS_1","BIS_2","BIS_3","BIS_4","BIS_5","BIS_6","BIS_7","BIS_8","BIS_9","GB_10","GB_1","GB_2","GB_3","GB_4","GB_5","GB_6","GB_7","GB_8","GB_9","KIC_10","KIC_1","KIC_2","KIC_3","KIC_4","KIC_5","KIC_6","KIC_7","KIC_8","KIC_9","MCD_10","MCD_1","MCD_2","MCD_3","MCD_4","MCD_5","MCD_6","MCD_7","MCD_8","MCD_9","PVD_10","PVD_1","PVD_2","PVD_3","PVD_4","PVD_5","PVD_6","PVD_7","PVD_8","PVD_9") # Adding individual names to rows of matrix
+dim(gen6p9g9)
+```
+
+```{r}
+#LFMM requires a complete dataframe. I am using the snp_6.lfmm_imputed_tab.lfmm file created for running lfmm above, which imputes missing data based on the most common genotype for each SNP. I will move forward with this and see what happens
+# No NAs 
+sum(is.na(gen6p9g9))
+```
+
+Repeat for no_invert dataset
+
+```{r}
+# to make it tab separated - sed 's/ \+/\t/g' snp6p9g9_noinvert.lfmm_imputed.lfmm  > snp6p9g9_noinvert.lfmm_imputed_tab.lfmm
+gen_noinvert_6p9g9<-read.delim("snp6p9g9_noinvert.lfmm_imputed_tab.lfmm",header = FALSE)
+row.names(gen_noinvert_6p9g9) <- c("BAR_10","BAR_1","BAR_2","BAR_3","BAR_4","BAR_5","BAR_6","BAR_7","BAR_8","BAR_9","BIS_10","BIS_1","BIS_2","BIS_3","BIS_4","BIS_5","BIS_6","BIS_7","BIS_8","BIS_9","GB_10","GB_1","GB_2","GB_3","GB_4","GB_5","GB_6","GB_7","GB_8","GB_9","KIC_10","KIC_1","KIC_2","KIC_3","KIC_4","KIC_5","KIC_6","KIC_7","KIC_8","KIC_9","MCD_10","MCD_1","MCD_2","MCD_3","MCD_4","MCD_5","MCD_6","MCD_7","MCD_8","MCD_9","PVD_10","PVD_1","PVD_2","PVD_3","PVD_4","PVD_5","PVD_6","PVD_7","PVD_8","PVD_9") # Adding individual names to rows of matrix
+dim(gen_noinvert_6p9g9)
+```
+
+```{r}
+#LFMM requires a complete dataframe. I am using the snp_6.lfmm_imputed_tab.lfmm file created for running lfmm above, which imputes missing data based on the most common genotype for each SNP. I will move forward with this and see what happens
+# No NAs 
+sum(is.na(gen_noinvert_6p9g9))
+```
+
+```{r}
+env6p9g9_red.lfmm <- clim.env_6pops_pca_red_full
+env6p9g9_red.lfmm$Individual <- c("BAR_10","BAR_1","BAR_2","BAR_3","BAR_4","BAR_5","BAR_6","BAR_7","BAR_8","BAR_9","BIS_10","BIS_1","BIS_2","BIS_3","BIS_4","BIS_5","BIS_6","BIS_7","BIS_8","BIS_9","GB_10","GB_1","GB_2","GB_3","GB_4","GB_5","GB_6","GB_7","GB_8","GB_9","KIC_10","KIC_1","KIC_2","KIC_3","KIC_4","KIC_5","KIC_6","KIC_7","KIC_8","KIC_9","MCD_10","MCD_1","MCD_2","MCD_3","MCD_4","MCD_5","MCD_6","MCD_7","MCD_8","MCD_9","PVD_10","PVD_1","PVD_2","PVD_3","PVD_4","PVD_5","PVD_6","PVD_7","PVD_8","PVD_9")
+str(env6p9g9_red.lfmm)
+```
+
+```{r}
+#subsetting the environmental dataset to just include the environmental variables
+pred6p9g9_red <- env_6pops_pca_red
+pred6p9g9_red_noPCs <- env_6pops_pca_red[,1:10]
+```
+
+```{r}
+# Running a PCA on the environmental variables. We can use the first PC as a synthetic predictor
+pred6p9g9_red.pca <- rda(pred6p9g9_red_noPCs, scale=T)
+summary(pred6p9g9_red.pca)$cont
+```
+
+```{r}
+#plotting PCA 
+plot(pred6p9g9_red.pca)
+```
+
+```{r}
+screeplot(pred6p9g9_red.pca, main = "Screeplot: Eigenvalues of Oyster Predictor Variables")
+```
+
+```{r}
+## correlations between the PC axis and predictors:
+round(scores(pred6p9g9_red.pca, choices=1:5, display="species", scaling=0), digits=3)
+```
+
+PC1 explains 51% of the variation, PC2 explains 24% and PC3 explains 13%. The strongest correlations with PC1 are Temp_Min, June_Salinity_Max and Temp_Max
+
+I could store the synthetic PC axis predictor as pred.PC1 and do the same for PC2 and PC3 as well. There's an option to run LFMM using these PC scores as the predictors. I can also run LFMM on each individual environmental predictor. I'm going to opt for the latter as I'd like to see which predictors are associated with outlier SNPs. I've also already saved the PC 1-3 scores for the full environmetnal dataset. The next section will be very repetitive as I'm going to repeat the set of code for each predictor.
+
+```{r}
+# Save each predictor as its own variable
+
+# Sewage Effluent 
+SE <- pred6p9g9_red$SewageEffluent
+# Min Temp
+Min_T <- pred6p9g9_red$Temp_Min
+# Max June Salinity
+Max_Sal_Jun <- pred6p9g9_red$June_Salinity_Max
+# Max Temp
+Max_T <- pred6p9g9_red$Temp_Max
+# Max June Salinity
+Min_T_Jul <- pred6p9g9_red$July_Temp_Min
+# Avg Temp July
+Avg_T_Jul <- pred6p9g9_red$July_Temp_Avg
+# Avg Sal Jun
+Avg_Sal_Jun <- pred6p9g9_red$June_Salinity_Avg
+# Min June Salinity
+Min_Sal_Jun <- pred6p9g9_red$June_Salinity_Min
+# Avg pH
+Avg_pH <- pred6p9g9_red$pH_Avg
+# DO Avg June
+Avg_DO_Jun <- pred6p9g9_red$June_DO_Avg
+# PC1
+PC1 <- pred6p9g9_red$PC1
+# PC2
+PC2 <- pred6p9g9_red$PC2
+# PC3
+PC3 <- pred6p9g9_red$PC3
+```
+
+## Determine K (estimate of number of populations in the data)
+
+```{r}
+#Using broken stick criterion to determine k - PCs should be retained as long as observed eigenvalues are higher than corresponding random broken stick components 
+
+#Testing it out on the environmental data
+screeplot(pred6p9g9_red.pca, main = "Screeplot of Oyster Predictor Variables with Broken Stick", bstick=TRUE, type="barplot")
+```
+
+PC1 explains more than the random broken stick components, while PC2 + do not. If this were genomic data, and we were determining a value of K using this approach, we'd set K = 1.
+
+```{r}
+# Now looking at the genetic data
+gen6p9g9.pca <- rda(gen6p9g9, scale=T)
+screeplot(gen6p9g9.pca, main = "Screeplot of Genetic Data with Broken Stick", bstick=TRUE, type="barplot")
+```
+
+For the genomic data, we can see that none of the PCs have eigenvalues greater than random (greater than the broken stick values in red). This effectively means that K=1 for the genomic data set, based on a PCA assessment. I also tried K = 3 based on the scree plot method. A higher K increased the GIF value for all predictors. Having a K = 1 identified one additional outlier SNP for pH_Avg and PC2, so I will move forward with K = 1 for the LFMM2 analysis.
+
+Repeating for no invert dataset
+
+```{r}
+# Now looking at the genetic data
+gen_noinvert_6p9g9.pca <- rda(gen_noinvert_6p9g9, scale=T)
+screeplot(gen_noinvert_6p9g9.pca, main = "Screeplot of Genetic Data with Broken Stick", bstick=TRUE, type="barplot")
+```
+
+For the genomic data, we can see that none of the PCs have eigenvalues greater than random (greater than the broken stick values in red). This effectively means that K=1 for the genomic data set, based on a PCA assessment.
+
+```{r}
+K <- 1
+```
+
+### Run LFMM 
+
+**Sewage Effluent**
+
+```{r}
+oys6p9g9_red_SE.lfmm <- lfmm_ridge(Y=gen6p9g9, X=SE, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys6p9g9_red_SE.pv <- lfmm_test(Y=gen6p9g9, X=SE, lfmm=oys6p9g9_red_SE.lfmm, calibrate="gif")
+
+names(oys6p9g9_red_SE.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.08, which I'm happy with.
+oys6p9g9_red_SE.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys6p9g9_red_SE.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_SE.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore_6p9g9_red_SE <- oys6p9g9_red_SE.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif_6p9g9_red_SE <- oys6p9g9_red_SE.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv6p9g9_red_SE <- pchisq(zscore_6p9g9_red_SE^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys6p9g9_red_SE.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_SE.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.08)")
+hist(adj.pv6p9g9_red_SE, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys6p9g9_red_SE.qv <- qvalue(oys6p9g9_red_SE.pv$calibrated.pvalue)$qvalues
+length(which(oys6p9g9_red_SE.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys6p9g9_red_SE.FDR.1 <- which(oys6p9g9_red_SE.qv < 0.1) ## identify which SNPs these are
+oys6p9g9_red_SE.FDR.1
+```
+
+**Temp Min**
+
+```{r}
+oys6p9g9_red_Min_T.lfmm <- lfmm_ridge(Y=gen6p9g9, X=Min_T, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys6p9g9_red_Min_T.pv <- lfmm_test(Y=gen6p9g9, X=Min_T, lfmm=oys6p9g9_red_Min_T.lfmm, calibrate="gif")
+
+names(oys6p9g9_red_Min_T.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.07, which I'm happy with.
+oys6p9g9_red_Min_T.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys6p9g9_red_Min_T.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_Min_T.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore_6p9g9_red_Min_T <- oys6p9g9_red_Min_T.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif_6p9g9_red_Min_T <- oys6p9g9_red_Min_T.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv6p9g9_red_Min_T <- pchisq(zscore_6p9g9_red_Min_T^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys6p9g9_red_Min_T.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_Min_T.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.07)")
+hist(adj.pv6p9g9_red_Min_T, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys6p9g9_red_Min_T.qv <- qvalue(oys6p9g9_red_Min_T.pv$calibrated.pvalue)$qvalues
+length(which(oys6p9g9_red_Min_T.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys6p9g9_red_Min_T.FDR.1 <- which(oys6p9g9_red_Min_T.qv < 0.1) ## identify which SNPs these are
+oys6p9g9_red_Min_T.FDR.1
+```
+
+```{r}
+invisible(lapply(oys6p9g9_red_Min_T.FDR.1, write, "outliers_lfmm2_6p9g9_red_Min_T.txt", append=TRUE))
+```
+
+**June Salinity Max**
+
+```{r}
+oys6p9g9_red_Max_Sal_Jun.lfmm <- lfmm_ridge(Y=gen6p9g9, X=Max_Sal_Jun, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys6p9g9_red_Max_Sal_Jun.pv <- lfmm_test(Y=gen6p9g9, X=Max_Sal_Jun, lfmm=oys6p9g9_red_Max_Sal_Jun.lfmm, calibrate="gif")
+
+names(oys6p9g9_red_Max_Sal_Jun.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.11.
+oys6p9g9_red_Max_Sal_Jun.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys6p9g9_red_Max_Sal_Jun.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_Max_Sal_Jun.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore_6p9g9_red_Max_Sal_Jun <- oys6p9g9_red_Max_Sal_Jun.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif_6p9g9_red_Max_Sal_Jun <- oys6p9g9_red_Max_Sal_Jun.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv6p9g9_red_Max_Sal_Jun <- pchisq(zscore_6p9g9_red_Max_Sal_Jun^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys6p9g9_red_Max_Sal_Jun.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_Max_Sal_Jun.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.11)")
+hist(adj.pv6p9g9_red_Max_Sal_Jun, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys6p9g9_red_Max_Sal_Jun.qv <- qvalue(oys6p9g9_red_Max_Sal_Jun.pv$calibrated.pvalue)$qvalues
+length(which(oys6p9g9_red_Max_Sal_Jun.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys6p9g9_red_Max_Sal_Jun.FDR.1 <- which(oys6p9g9_red_Max_Sal_Jun.qv < 0.1) ## identify which SNPs these are
+oys6p9g9_red_Max_Sal_Jun.FDR.1
+```
+
+```{r}
+invisible(lapply(oys6p9g9_red_Max_Sal_Jun.FDR.1, write, "outliers_lfmm2_6p9g9_red_Max_Sal_Jun.txt", append=TRUE))
+```
+
+**Temp Max**
+
+```{r}
+oys6p9g9_red_Max_T.lfmm <- lfmm_ridge(Y=gen6p9g9, X=Max_T, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys6p9g9_red_Max_T.pv <- lfmm_test(Y=gen6p9g9, X=Max_T, lfmm=oys6p9g9_red_Max_T.lfmm, calibrate="gif")
+
+names(oys6p9g9_red_Max_T.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.08, which I'm happy with.
+oys6p9g9_red_Max_T.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys6p9g9_red_Max_T.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_Max_T.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore_6p9g9_red_Max_T <- oys6p9g9_red_Max_T.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif_6p9g9_red_Max_T <- oys6p9g9_red_Max_T.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv6p9g9_red_Max_T <- pchisq(zscore_6p9g9_red_Max_T^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys6p9g9_red_Max_T.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_Max_T.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.08)")
+hist(adj.pv6p9g9_red_Max_T, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys6p9g9_red_Max_T.qv <- qvalue(oys6p9g9_red_Max_T.pv$calibrated.pvalue)$qvalues
+length(which(oys6p9g9_red_Max_T.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys6p9g9_red_Max_T.FDR.1 <- which(oys6p9g9_red_Max_T.qv < 0.1) ## identify which SNPs these are
+oys6p9g9_red_Max_T.FDR.1
+```
+
+```{r}
+invisible(lapply(oys6p9g9_red_Max_T.FDR.1, write, "outliers_lfmm2_6p9g9_red_Max_T.txt", append=TRUE))
+```
+
+**July Temp Min**
+
+```{r}
+oys6p9g9_red_Min_T_Jul.lfmm <- lfmm_ridge(Y=gen6p9g9, X=Min_T_Jul, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys6p9g9_red_Min_T_Jul.pv <- lfmm_test(Y=gen6p9g9, X=Min_T_Jul, lfmm=oys6p9g9_red_Min_T_Jul.lfmm, calibrate="gif")
+
+names(oys6p9g9_red_Min_T_Jul.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.06, which I'm happy with.
+oys6p9g9_red_Min_T_Jul.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys6p9g9_red_Min_T_Jul.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_Min_T_Jul.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore_6p9g9_red_Min_T_Jul <- oys6p9g9_red_Min_T_Jul.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif_6p9g9_red_Min_T_Jul <- oys6p9g9_red_Min_T_Jul.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv6p9g9_red_Min_T_Jul <- pchisq(zscore_6p9g9_red_Min_T_Jul^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys6p9g9_red_Min_T_Jul.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_Min_T_Jul.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.06)")
+hist(adj.pv6p9g9_red_Min_T_Jul, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys6p9g9_red_Min_T_Jul.qv <- qvalue(oys6p9g9_red_Min_T_Jul.pv$calibrated.pvalue)$qvalues
+length(which(oys6p9g9_red_Min_T_Jul.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys6p9g9_red_Min_T_Jul.FDR.1 <- which(oys6p9g9_red_Min_T_Jul.qv < 0.1) ## identify which SNPs these are
+oys6p9g9_red_Min_T_Jul.FDR.1
+```
+
+```{r}
+invisible(lapply(oys6p9g9_red_Min_T_Jul.FDR.1, write, "outliers_lfmm2_6p9g9_red_Min_T_Jul.txt", append=TRUE))
+```
+
+**July Temp Avg**
+
+```{r}
+oys6p9g9_red_Avg_T_Jul.lfmm <- lfmm_ridge(Y=gen6p9g9, X=Avg_T_Jul, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys6p9g9_red_Avg_T_Jul.pv <- lfmm_test(Y=gen6p9g9, X=Avg_T_Jul, lfmm=oys6p9g9_red_Avg_T_Jul.lfmm, calibrate="gif")
+
+names(oys6p9g9_red_Avg_T_Jul.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.13
+oys6p9g9_red_Avg_T_Jul.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys6p9g9_red_Avg_T_Jul.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_Avg_T_Jul.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore_6p9g9_red_Avg_T_Jul <- oys6p9g9_red_Avg_T_Jul.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif_6p9g9_red_Avg_T_Jul <- oys6p9g9_red_Avg_T_Jul.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00            ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv6p9g9_red_Avg_T_Jul <- pchisq(zscore_6p9g9_red_Avg_T_Jul^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys6p9g9_red_Avg_T_Jul.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_Avg_T_Jul.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.13)")
+hist(adj.pv6p9g9_red_Avg_T_Jul, main="REadjusted p-values (GIF=1.07)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys6p9g9_red_Avg_T_Jul.qv <- qvalue(oys6p9g9_red_Avg_T_Jul.pv$calibrated.pvalue)$qvalues
+length(which(oys6p9g9_red_Avg_T_Jul.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys6p9g9_red_Avg_T_Jul.FDR.1 <- which(oys6p9g9_red_Avg_T_Jul.qv < 0.1) ## identify which SNPs these are
+oys6p9g9_red_Avg_T_Jul.FDR.1
+```
+
+```{r}
+invisible(lapply(oys6p9g9_red_Avg_T_Jul.FDR.1, write, "outliers_lfmm2_6p9g9_red_Avg_T_Jul.txt", append=TRUE))
+```
+
+**June Salinity Avg**
+
+```{r}
+oys6p9g9_red_Avg_Sal_Jun.lfmm <- lfmm_ridge(Y=gen6p9g9, X=Avg_Sal_Jun, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys6p9g9_red_Avg_Sal_Jun.pv <- lfmm_test(Y=gen6p9g9, X=Avg_Sal_Jun, lfmm=oys6p9g9_red_Avg_Sal_Jun.lfmm, calibrate="gif")
+
+names(oys6p9g9_red_Avg_Sal_Jun.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.08, which I'm happy with.
+oys6p9g9_red_Avg_Sal_Jun.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys6p9g9_red_Avg_Sal_Jun.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_Avg_Sal_Jun.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore_6p9g9_red_Avg_Sal_Jun <- oys6p9g9_red_Avg_Sal_Jun.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif_6p9g9_red_Avg_Sal_Jun <- oys6p9g9_red_Avg_Sal_Jun.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv6p9g9_red_Avg_Sal_Jun <- pchisq(zscore_6p9g9_red_Avg_Sal_Jun^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys6p9g9_red_Avg_Sal_Jun.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_Avg_Sal_Jun.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.08)")
+hist(adj.pv6p9g9_red_Avg_Sal_Jun, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys6p9g9_red_Avg_Sal_Jun.qv <- qvalue(oys6p9g9_red_Avg_Sal_Jun.pv$calibrated.pvalue)$qvalues
+length(which(oys6p9g9_red_Avg_Sal_Jun.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys6p9g9_red_Avg_Sal_Jun.FDR.1 <- which(oys6p9g9_red_Avg_Sal_Jun.qv < 0.1) ## identify which SNPs these are
+oys6p9g9_red_Avg_Sal_Jun.FDR.1
+```
+
+```{r}
+invisible(lapply(oys6p9g9_red_Avg_Sal_Jun.FDR.1, write, "outliers_lfmm2_6p9g9_red_Avg_Sal_Jun.txt", append=TRUE))
+```
+
+**June Salinity Min**
+
+```{r}
+oys6p9g9_red_Min_Sal_Jun.lfmm <- lfmm_ridge(Y=gen6p9g9, X=Min_Sal_Jun, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys6p9g9_red_Min_Sal_Jun.pv <- lfmm_test(Y=gen6p9g9, X=Min_Sal_Jun, lfmm=oys6p9g9_red_Min_Sal_Jun.lfmm, calibrate="gif")
+
+names(oys6p9g9_red_Min_Sal_Jun.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.08, which I'm happy with.
+oys6p9g9_red_Min_Sal_Jun.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys6p9g9_red_Min_Sal_Jun.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_Min_Sal_Jun.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore_6p9g9_red_Min_Sal_Jun <- oys6p9g9_red_Min_Sal_Jun.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif_6p9g9_red_Min_Sal_Jun <- oys6p9g9_red_Min_Sal_Jun.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv6p9g9_red_Min_Sal_Jun <- pchisq(zscore_6p9g9_red_Min_Sal_Jun^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys6p9g9_red_Min_Sal_Jun.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_Min_Sal_Jun.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.08)")
+hist(adj.pv6p9g9_red_Min_Sal_Jun, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys6p9g9_red_Min_Sal_Jun.qv <- qvalue(oys6p9g9_red_Min_Sal_Jun.pv$calibrated.pvalue)$qvalues
+length(which(oys6p9g9_red_Min_Sal_Jun.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys6p9g9_red_Min_Sal_Jun.FDR.1 <- which(oys6p9g9_red_Min_Sal_Jun.qv < 0.1) ## identify which SNPs these are
+oys6p9g9_red_Min_Sal_Jun.FDR.1
+```
+
+```{r}
+invisible(lapply(oys6p9g9_red_Min_Sal_Jun.FDR.1, write, "outliers_lfmm2_6p9g9_red_Min_Sal_Jun.txt", append=TRUE))
+```
+
+**pH Avg**
+
+```{r}
+oys6p9g9_red_Avg_pH.lfmm <- lfmm_ridge(Y=gen6p9g9, X=Avg_pH, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys6p9g9_red_Avg_pH.pv <- lfmm_test(Y=gen6p9g9, X=Avg_pH, lfmm=oys6p9g9_red_Avg_pH.lfmm, calibrate="gif")
+
+names(oys6p9g9_red_Avg_pH.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.07, which I'm happy with.
+oys6p9g9_red_Avg_pH.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys6p9g9_red_Avg_pH.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_Avg_pH.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore_6p9g9_red_Avg_pH <- oys6p9g9_red_Avg_pH.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif_6p9g9_red_Avg_pH <- oys6p9g9_red_Avg_pH.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv6p9g9_red_Avg_pH <- pchisq(zscore_6p9g9_red_Avg_pH^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys6p9g9_red_Avg_pH.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_Avg_pH.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.07)")
+hist(adj.pv6p9g9_red_Avg_pH, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys6p9g9_red_Avg_pH.qv <- qvalue(oys6p9g9_red_Avg_pH.pv$calibrated.pvalue)$qvalues
+length(which(oys6p9g9_red_Avg_pH.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys6p9g9_red_Avg_pH.FDR.1 <- which(oys6p9g9_red_Avg_pH.qv < 0.1) ## identify which SNPs these are
+oys6p9g9_red_Avg_pH.FDR.1
+```
+
+```{r}
+invisible(lapply(oys6p9g9_red_Avg_pH.FDR.1, write, "outliers_lfmm2_6p9g9_red_Avg_pH.txt", append=TRUE))
+```
+
+**June DO Avg**
+
+```{r}
+oys6p9g9_red_Avg_DO_Jun.lfmm <- lfmm_ridge(Y=gen6p9g9, X=Avg_DO_Jun, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys6p9g9_red_Avg_DO_Jun.pv <- lfmm_test(Y=gen6p9g9, X=Avg_DO_Jun, lfmm=oys6p9g9_red_Avg_DO_Jun.lfmm, calibrate="gif")
+
+names(oys6p9g9_red_Avg_DO_Jun.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.12, which I'm happy with.
+oys6p9g9_red_Avg_DO_Jun.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys6p9g9_red_Avg_DO_Jun.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_Avg_DO_Jun.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore_6p9g9_red_Avg_DO_Jun <- oys6p9g9_red_Avg_DO_Jun.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif_6p9g9_red_Avg_DO_Jun <- oys6p9g9_red_Avg_DO_Jun.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv6p9g9_red_Avg_DO_Jun <- pchisq(zscore_6p9g9_red_Avg_DO_Jun^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys6p9g9_red_Avg_DO_Jun.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_Avg_DO_Jun.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.12)")
+hist(adj.pv6p9g9_red_Avg_DO_Jun, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys6p9g9_red_Avg_DO_Jun.qv <- qvalue(oys6p9g9_red_Avg_DO_Jun.pv$calibrated.pvalue)$qvalues
+length(which(oys6p9g9_red_Avg_DO_Jun.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys6p9g9_red_Avg_DO_Jun.FDR.1 <- which(oys6p9g9_red_Avg_DO_Jun.qv < 0.1) ## identify which SNPs these are
+oys6p9g9_red_Avg_DO_Jun.FDR.1
+```
+
+**PC1**
+
+```{r}
+oys6p9g9_red_PC1.lfmm <- lfmm_ridge(Y=gen6p9g9, X=PC1, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys6p9g9_red_PC1.pv <- lfmm_test(Y=gen6p9g9, X=PC1, lfmm=oys6p9g9_red_PC1.lfmm, calibrate="gif")
+
+names(oys6p9g9_red_PC1.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.09, which I'm happy with.
+oys6p9g9_red_PC1.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys6p9g9_red_PC1.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_PC1.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore_6p9g9_red_PC1 <- oys6p9g9_red_PC1.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif_6p9g9_red_PC1 <- oys6p9g9_red_PC1.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv6p9g9_red_PC1 <- pchisq(zscore_6p9g9_red_PC1^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys6p9g9_red_PC1.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_PC1.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.09)")
+hist(adj.pv6p9g9_red_PC1, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys6p9g9_red_PC1.qv <- qvalue(oys6p9g9_red_PC1.pv$calibrated.pvalue)$qvalues
+length(which(oys6p9g9_red_PC1.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys6p9g9_red_PC1.FDR.1 <- which(oys6p9g9_red_PC1.qv < 0.1) ## identify which SNPs these are
+oys6p9g9_red_PC1.FDR.1
+```
+
+```{r}
+invisible(lapply(oys6p9g9_red_PC1.FDR.1, write, "outliers_lfmm2_6p9g9_red_PC1.txt", append=TRUE))
+```
+
+**PC2**
+
+```{r}
+oys6p9g9_red_PC2.lfmm <- lfmm_ridge(Y=gen6p9g9, X=PC2, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys6p9g9_red_PC2.pv <- lfmm_test(Y=gen6p9g9, X=PC2, lfmm=oys6p9g9_red_PC2.lfmm, calibrate="gif")
+
+names(oys6p9g9_red_PC2.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.05, which I'm happy with.
+oys6p9g9_red_PC2.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys6p9g9_red_PC2.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_PC2.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore_6p9g9_red_PC2 <- oys6p9g9_red_PC2.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif_6p9g9_red_PC2 <- oys6p9g9_red_PC2.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv6p9g9_red_PC2 <- pchisq(zscore_6p9g9_red_PC2^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys6p9g9_red_PC2.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_PC2.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.05)")
+hist(adj.pv6p9g9_red_PC2, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys6p9g9_red_PC2.qv <- qvalue(oys6p9g9_red_PC2.pv$calibrated.pvalue)$qvalues
+length(which(oys6p9g9_red_PC2.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys6p9g9_red_PC2.FDR.1 <- which(oys6p9g9_red_PC2.qv < 0.1) ## identify which SNPs these are
+oys6p9g9_red_PC2.FDR.1
+```
+
+```{r}
+invisible(lapply(oys6p9g9_red_PC2.FDR.1, write, "outliers_lfmm2_6p9g9_red_PC2.txt", append=TRUE))
+```
+
+**PC3**
+
+```{r}
+oys6p9g9_red_PC3.lfmm <- lfmm_ridge(Y=gen6p9g9, X=PC3, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys6p9g9_red_PC3.pv <- lfmm_test(Y=gen6p9g9, X=PC3, lfmm=oys6p9g9_red_PC3.lfmm, calibrate="gif")
+
+names(oys6p9g9_red_PC3.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.02, which I'm happy with.
+oys6p9g9_red_PC3.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys6p9g9_red_PC3.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_PC3.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore_6p9g9_red_PC3 <- oys6p9g9_red_PC3.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif_6p9g9_red_PC3 <- oys6p9g9_red_PC3.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv6p9g9_red_PC3 <- pchisq(zscore_6p9g9_red_PC3^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys6p9g9_red_PC3.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_PC3.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.03)")
+hist(adj.pv6p9g9_red_PC3, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys6p9g9_red_PC3.qv <- qvalue(oys6p9g9_red_PC3.pv$calibrated.pvalue)$qvalues
+length(which(oys6p9g9_red_PC3.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys6p9g9_red_PC3.FDR.1 <- which(oys6p9g9_red_PC3.qv < 0.1) ## identify which SNPs these are
+oys6p9g9_red_PC3.FDR.1
+```
+
+### Repeating with no invert dataset
+
+### Run LFMM
+
+```{r}
+K <- 1
+```
+
+**Sewage Effluent**
+
+```{r}
+oys_noinvert_6p9g9_red_SE.lfmm <- lfmm_ridge(Y=gen_noinvert_6p9g9, X=SE, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys_noinvert_6p9g9_red_SE.pv <- lfmm_test(Y=gen_noinvert_6p9g9, X=SE, lfmm=oys_noinvert_6p9g9_red_SE.lfmm, calibrate="gif")
+
+names(oys_noinvert_6p9g9_red_SE.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.09, which I'm happy with.
+oys_noinvert_6p9g9_red_SE.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys_noinvert_6p9g9_red_SE.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_SE.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore__noinvert_6p9g9_red_SE <- oys_noinvert_6p9g9_red_SE.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif__noinvert_6p9g9_red_SE <- oys_noinvert_6p9g9_red_SE.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv_noinvert_6p9g9_red_SE <- pchisq(zscore__noinvert_6p9g9_red_SE^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys_noinvert_6p9g9_red_SE.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_SE.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.09)")
+hist(adj.pv_noinvert_6p9g9_red_SE, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys_noinvert_6p9g9_red_SE.qv <- qvalue(oys_noinvert_6p9g9_red_SE.pv$calibrated.pvalue)$qvalues
+length(which(oys_noinvert_6p9g9_red_SE.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys_noinvert_6p9g9_red_SE.FDR.1 <- which(oys_noinvert_6p9g9_red_SE.qv < 0.1) ## identify which SNPs these are
+oys_noinvert_6p9g9_red_SE.FDR.1
+```
+
+**Temp Min**
+
+```{r}
+oys_noinvert_6p9g9_red_Min_T.lfmm <- lfmm_ridge(Y=gen_noinvert_6p9g9, X=Min_T, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys_noinvert_6p9g9_red_Min_T.pv <- lfmm_test(Y=gen_noinvert_6p9g9, X=Min_T, lfmm=oys_noinvert_6p9g9_red_Min_T.lfmm, calibrate="gif")
+
+names(oys_noinvert_6p9g9_red_Min_T.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.08.
+oys_noinvert_6p9g9_red_Min_T.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys_noinvert_6p9g9_red_Min_T.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_Min_T.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore__noinvert_6p9g9_red_Min_T <- oys_noinvert_6p9g9_red_Min_T.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif__noinvert_6p9g9_red_Min_T <- oys_noinvert_6p9g9_red_Min_T.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv_noinvert_6p9g9_red_Min_T <- pchisq(zscore__noinvert_6p9g9_red_Min_T^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys_noinvert_6p9g9_red_Min_T.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_Min_T.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.08)")
+hist(adj.pv_noinvert_6p9g9_red_Min_T, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys_noinvert_6p9g9_red_Min_T.qv <- qvalue(oys_noinvert_6p9g9_red_Min_T.pv$calibrated.pvalue)$qvalues
+length(which(oys_noinvert_6p9g9_red_Min_T.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys_noinvert_6p9g9_red_Min_T.FDR.1 <- which(oys_noinvert_6p9g9_red_Min_T.qv < 0.1) ## identify which SNPs these are
+oys_noinvert_6p9g9_red_Min_T.FDR.1
+```
+
+```{r}
+invisible(lapply(oys_noinvert_6p9g9_red_Min_T.FDR.1, write, "outliers_lfmm2_noinvert_6p9g9_red_Min_T.txt", append=TRUE))
+```
+
+**June Salinity Max**
+
+```{r}
+oys_noinvert_6p9g9_red_Max_Sal_Jun.lfmm <- lfmm_ridge(Y=gen_noinvert_6p9g9, X=Max_Sal_Jun, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys_noinvert_6p9g9_red_Max_Sal_Jun.pv <- lfmm_test(Y=gen_noinvert_6p9g9, X=Max_Sal_Jun, lfmm=oys_noinvert_6p9g9_red_Max_Sal_Jun.lfmm, calibrate="gif")
+
+names(oys_noinvert_6p9g9_red_Max_Sal_Jun.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.13.
+oys_noinvert_6p9g9_red_Max_Sal_Jun.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys_noinvert_6p9g9_red_Max_Sal_Jun.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_Max_Sal_Jun.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore__noinvert_6p9g9_red_Max_Sal_Jun <- oys_noinvert_6p9g9_red_Max_Sal_Jun.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif__noinvert_6p9g9_red_Max_Sal_Jun <- oys_noinvert_6p9g9_red_Max_Sal_Jun.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv_noinvert_6p9g9_red_Max_Sal_Jun <- pchisq(zscore__noinvert_6p9g9_red_Max_Sal_Jun^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys_noinvert_6p9g9_red_Max_Sal_Jun.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_Max_Sal_Jun.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.13)")
+hist(adj.pv_noinvert_6p9g9_red_Max_Sal_Jun, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys_noinvert_6p9g9_red_Max_Sal_Jun.qv <- qvalue(oys_noinvert_6p9g9_red_Max_Sal_Jun.pv$calibrated.pvalue)$qvalues
+length(which(oys_noinvert_6p9g9_red_Max_Sal_Jun.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys_noinvert_6p9g9_red_Max_Sal_Jun.FDR.1 <- which(oys_noinvert_6p9g9_red_Max_Sal_Jun.qv < 0.1) ## identify which SNPs these are
+oys_noinvert_6p9g9_red_Max_Sal_Jun.FDR.1
+```
+
+```{r}
+invisible(lapply(oys_noinvert_6p9g9_red_Max_Sal_Jun.FDR.1, write, "outliers_lfmm2_noinvert_6p9g9_red_Max_Sal_Jun.txt", append=TRUE))
+```
+
+**Temp Max**
+
+```{r}
+oys_noinvert_6p9g9_red_Max_T.lfmm <- lfmm_ridge(Y=gen_noinvert_6p9g9, X=Max_T, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys_noinvert_6p9g9_red_Max_T.pv <- lfmm_test(Y=gen_noinvert_6p9g9, X=Max_T, lfmm=oys_noinvert_6p9g9_red_Max_T.lfmm, calibrate="gif")
+
+names(oys_noinvert_6p9g9_red_Max_T.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.09, which I'm happy with.
+oys_noinvert_6p9g9_red_Max_T.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys_noinvert_6p9g9_red_Max_T.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_Max_T.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore__noinvert_6p9g9_red_Max_T <- oys_noinvert_6p9g9_red_Max_T.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif__noinvert_6p9g9_red_Max_T <- oys_noinvert_6p9g9_red_Max_T.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv_noinvert_6p9g9_red_Max_T <- pchisq(zscore__noinvert_6p9g9_red_Max_T^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys_noinvert_6p9g9_red_Max_T.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_Max_T.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.09)")
+hist(adj.pv_noinvert_6p9g9_red_Max_T, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys_noinvert_6p9g9_red_Max_T.qv <- qvalue(oys_noinvert_6p9g9_red_Max_T.pv$calibrated.pvalue)$qvalues
+length(which(oys_noinvert_6p9g9_red_Max_T.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys_noinvert_6p9g9_red_Max_T.FDR.1 <- which(oys_noinvert_6p9g9_red_Max_T.qv < 0.1) ## identify which SNPs these are
+oys_noinvert_6p9g9_red_Max_T.FDR.1
+```
+
+```{r}
+invisible(lapply(oys_noinvert_6p9g9_red_Max_T.FDR.1, write, "outliers_lfmm2_noinvert_6p9g9_red_Max_T.txt", append=TRUE))
+```
+
+**July Temp Min**
+
+```{r}
+oys_noinvert_6p9g9_red_Min_T_Jul.lfmm <- lfmm_ridge(Y=gen_noinvert_6p9g9, X=Min_T_Jul, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys_noinvert_6p9g9_red_Min_T_Jul.pv <- lfmm_test(Y=gen_noinvert_6p9g9, X=Min_T_Jul, lfmm=oys_noinvert_6p9g9_red_Min_T_Jul.lfmm, calibrate="gif")
+
+names(oys_noinvert_6p9g9_red_Min_T_Jul.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.07, which I'm happy with.
+oys_noinvert_6p9g9_red_Min_T_Jul.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys_noinvert_6p9g9_red_Min_T_Jul.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_Min_T_Jul.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore__noinvert_6p9g9_red_Min_T_Jul <- oys_noinvert_6p9g9_red_Min_T_Jul.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif__noinvert_6p9g9_red_Min_T_Jul <- oys_noinvert_6p9g9_red_Min_T_Jul.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv_noinvert_6p9g9_red_Min_T_Jul <- pchisq(zscore__noinvert_6p9g9_red_Min_T_Jul^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys_noinvert_6p9g9_red_Min_T_Jul.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_Min_T_Jul.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.07)")
+hist(adj.pv_noinvert_6p9g9_red_Min_T_Jul, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys_noinvert_6p9g9_red_Min_T_Jul.qv <- qvalue(oys_noinvert_6p9g9_red_Min_T_Jul.pv$calibrated.pvalue)$qvalues
+length(which(oys_noinvert_6p9g9_red_Min_T_Jul.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys_noinvert_6p9g9_red_Min_T_Jul.FDR.1 <- which(oys_noinvert_6p9g9_red_Min_T_Jul.qv < 0.1) ## identify which SNPs these are
+oys_noinvert_6p9g9_red_Min_T_Jul.FDR.1
+```
+
+```{r}
+invisible(lapply(oys_noinvert_6p9g9_red_Min_T_Jul.FDR.1, write, "outliers_lfmm2_noinvert_6p9g9_red_Min_T_Jul.txt", append=TRUE))
+```
+
+**July Temp Avg**
+
+```{r}
+oys_noinvert_6p9g9_red_Avg_T_Jul.lfmm <- lfmm_ridge(Y=gen_noinvert_6p9g9, X=Avg_T_Jul, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys_noinvert_6p9g9_red_Avg_T_Jul.pv <- lfmm_test(Y=gen_noinvert_6p9g9, X=Avg_T_Jul, lfmm=oys_noinvert_6p9g9_red_Avg_T_Jul.lfmm, calibrate="gif")
+
+names(oys_noinvert_6p9g9_red_Avg_T_Jul.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.13
+oys_noinvert_6p9g9_red_Avg_T_Jul.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys_noinvert_6p9g9_red_Avg_T_Jul.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_Avg_T_Jul.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore__noinvert_6p9g9_red_Avg_T_Jul <- oys_noinvert_6p9g9_red_Avg_T_Jul.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif__noinvert_6p9g9_red_Avg_T_Jul <- oys_noinvert_6p9g9_red_Avg_T_Jul.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00            ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv_noinvert_6p9g9_red_Avg_T_Jul <- pchisq(zscore__noinvert_6p9g9_red_Avg_T_Jul^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys_noinvert_6p9g9_red_Avg_T_Jul.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_Avg_T_Jul.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.13)")
+hist(adj.pv_noinvert_6p9g9_red_Avg_T_Jul, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys_noinvert_6p9g9_red_Avg_T_Jul.qv <- qvalue(oys_noinvert_6p9g9_red_Avg_T_Jul.pv$calibrated.pvalue)$qvalues
+length(which(oys_noinvert_6p9g9_red_Avg_T_Jul.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys_noinvert_6p9g9_red_Avg_T_Jul.FDR.1 <- which(oys_noinvert_6p9g9_red_Avg_T_Jul.qv < 0.1) ## identify which SNPs these are
+oys_noinvert_6p9g9_red_Avg_T_Jul.FDR.1
+```
+
+```{r}
+invisible(lapply(oys_noinvert_6p9g9_red_Avg_T_Jul.FDR.1, write, "outliers_lfmm2_noinvert_6p9g9_red_Avg_T_Jul.txt", append=TRUE))
+```
+
+**June Salinity Avg**
+
+```{r}
+oys_noinvert_6p9g9_red_Avg_Sal_Jun.lfmm <- lfmm_ridge(Y=gen_noinvert_6p9g9, X=Avg_Sal_Jun, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys_noinvert_6p9g9_red_Avg_Sal_Jun.pv <- lfmm_test(Y=gen_noinvert_6p9g9, X=Avg_Sal_Jun, lfmm=oys_noinvert_6p9g9_red_Avg_Sal_Jun.lfmm, calibrate="gif")
+
+names(oys_noinvert_6p9g9_red_Avg_Sal_Jun.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.07, which I'm happy with.
+oys_noinvert_6p9g9_red_Avg_Sal_Jun.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys_noinvert_6p9g9_red_Avg_Sal_Jun.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_Avg_Sal_Jun.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore__noinvert_6p9g9_red_Avg_Sal_Jun <- oys_noinvert_6p9g9_red_Avg_Sal_Jun.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif__noinvert_6p9g9_red_Avg_Sal_Jun <- oys_noinvert_6p9g9_red_Avg_Sal_Jun.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv_noinvert_6p9g9_red_Avg_Sal_Jun <- pchisq(zscore__noinvert_6p9g9_red_Avg_Sal_Jun^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys_noinvert_6p9g9_red_Avg_Sal_Jun.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_Avg_Sal_Jun.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.07)")
+hist(adj.pv_noinvert_6p9g9_red_Avg_Sal_Jun, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys_noinvert_6p9g9_red_Avg_Sal_Jun.qv <- qvalue(oys_noinvert_6p9g9_red_Avg_Sal_Jun.pv$calibrated.pvalue)$qvalues
+length(which(oys_noinvert_6p9g9_red_Avg_Sal_Jun.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys_noinvert_6p9g9_red_Avg_Sal_Jun.FDR.1 <- which(oys_noinvert_6p9g9_red_Avg_Sal_Jun.qv < 0.1) ## identify which SNPs these are
+oys_noinvert_6p9g9_red_Avg_Sal_Jun.FDR.1
+```
+
+```{r}
+invisible(lapply(oys_noinvert_6p9g9_red_Avg_Sal_Jun.FDR.1, write, "outliers_lfmm2_noinvert_6p9g9_red_Avg_Sal_Jun.txt", append=TRUE))
+```
+
+**June Salinity Min**
+
+```{r}
+oys_noinvert_6p9g9_red_Min_Sal_Jun.lfmm <- lfmm_ridge(Y=gen_noinvert_6p9g9, X=Min_Sal_Jun, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys_noinvert_6p9g9_red_Min_Sal_Jun.pv <- lfmm_test(Y=gen_noinvert_6p9g9, X=Min_Sal_Jun, lfmm=oys_noinvert_6p9g9_red_Min_Sal_Jun.lfmm, calibrate="gif")
+
+names(oys_noinvert_6p9g9_red_Min_Sal_Jun.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.07, which I'm happy with.
+oys_noinvert_6p9g9_red_Min_Sal_Jun.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys_noinvert_6p9g9_red_Min_Sal_Jun.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_Min_Sal_Jun.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore__noinvert_6p9g9_red_Min_Sal_Jun <- oys_noinvert_6p9g9_red_Min_Sal_Jun.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif__noinvert_6p9g9_red_Min_Sal_Jun <- oys_noinvert_6p9g9_red_Min_Sal_Jun.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv_noinvert_6p9g9_red_Min_Sal_Jun <- pchisq(zscore__noinvert_6p9g9_red_Min_Sal_Jun^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys_noinvert_6p9g9_red_Min_Sal_Jun.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_Min_Sal_Jun.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.07)")
+hist(adj.pv_noinvert_6p9g9_red_Min_Sal_Jun, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys_noinvert_6p9g9_red_Min_Sal_Jun.qv <- qvalue(oys_noinvert_6p9g9_red_Min_Sal_Jun.pv$calibrated.pvalue)$qvalues
+length(which(oys_noinvert_6p9g9_red_Min_Sal_Jun.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys_noinvert_6p9g9_red_Min_Sal_Jun.FDR.1 <- which(oys_noinvert_6p9g9_red_Min_Sal_Jun.qv < 0.1) ## identify which SNPs these are
+oys_noinvert_6p9g9_red_Min_Sal_Jun.FDR.1
+```
+
+```{r}
+invisible(lapply(oys_noinvert_6p9g9_red_Min_Sal_Jun.FDR.1, write, "outliers_lfmm2_noinvert_6p9g9_red_Min_Sal_Jun.txt", append=TRUE))
+```
+
+**pH Avg**
+
+```{r}
+oys_noinvert_6p9g9_red_Avg_pH.lfmm <- lfmm_ridge(Y=gen_noinvert_6p9g9, X=Avg_pH, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys_noinvert_6p9g9_red_Avg_pH.pv <- lfmm_test(Y=gen_noinvert_6p9g9, X=Avg_pH, lfmm=oys_noinvert_6p9g9_red_Avg_pH.lfmm, calibrate="gif")
+
+names(oys_noinvert_6p9g9_red_Avg_pH.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.05, which I'm happy with.
+oys_noinvert_6p9g9_red_Avg_pH.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys_noinvert_6p9g9_red_Avg_pH.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_Avg_pH.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore__noinvert_6p9g9_red_Avg_pH <- oys_noinvert_6p9g9_red_Avg_pH.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif__noinvert_6p9g9_red_Avg_pH <- oys_noinvert_6p9g9_red_Avg_pH.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv_noinvert_6p9g9_red_Avg_pH <- pchisq(zscore__noinvert_6p9g9_red_Avg_pH^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys_noinvert_6p9g9_red_Avg_pH.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_Avg_pH.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.05)")
+hist(adj.pv_noinvert_6p9g9_red_Avg_pH, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys_noinvert_6p9g9_red_Avg_pH.qv <- qvalue(oys_noinvert_6p9g9_red_Avg_pH.pv$calibrated.pvalue)$qvalues
+length(which(oys_noinvert_6p9g9_red_Avg_pH.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys_noinvert_6p9g9_red_Avg_pH.FDR.1 <- which(oys_noinvert_6p9g9_red_Avg_pH.qv < 0.1) ## identify which SNPs these are
+oys_noinvert_6p9g9_red_Avg_pH.FDR.1
+```
+
+```{r}
+# invisible(lapply(oys_noinvert_6p9g9_red_Avg_pH.FDR.1, write, "outliers_lfmm2_noinvert_6p9g9_red_Avg_pH.txt", append=TRUE))
+```
+
+**June DO Avg**
+
+```{r}
+oys_noinvert_6p9g9_red_Avg_DO_Jun.lfmm <- lfmm_ridge(Y=gen_noinvert_6p9g9, X=Avg_DO_Jun, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys_noinvert_6p9g9_red_Avg_DO_Jun.pv <- lfmm_test(Y=gen_noinvert_6p9g9, X=Avg_DO_Jun, lfmm=oys_noinvert_6p9g9_red_Avg_DO_Jun.lfmm, calibrate="gif")
+
+names(oys_noinvert_6p9g9_red_Avg_DO_Jun.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.10, which I'm happy with.
+oys_noinvert_6p9g9_red_Avg_DO_Jun.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys_noinvert_6p9g9_red_Avg_DO_Jun.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_Avg_DO_Jun.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore__noinvert_6p9g9_red_Avg_DO_Jun <- oys_noinvert_6p9g9_red_Avg_DO_Jun.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif__noinvert_6p9g9_red_Avg_DO_Jun <- oys_noinvert_6p9g9_red_Avg_DO_Jun.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv_noinvert_6p9g9_red_Avg_DO_Jun <- pchisq(zscore__noinvert_6p9g9_red_Avg_DO_Jun^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys_noinvert_6p9g9_red_Avg_DO_Jun.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_Avg_DO_Jun.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.10)")
+hist(adj.pv_noinvert_6p9g9_red_Avg_DO_Jun, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys_noinvert_6p9g9_red_Avg_DO_Jun.qv <- qvalue(oys_noinvert_6p9g9_red_Avg_DO_Jun.pv$calibrated.pvalue)$qvalues
+length(which(oys_noinvert_6p9g9_red_Avg_DO_Jun.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys_noinvert_6p9g9_red_Avg_DO_Jun.FDR.1 <- which(oys_noinvert_6p9g9_red_Avg_DO_Jun.qv < 0.1) ## identify which SNPs these are
+oys_noinvert_6p9g9_red_Avg_DO_Jun.FDR.1
+```
+
+**PC1**
+
+```{r}
+oys_noinvert_6p9g9_red_PC1.lfmm <- lfmm_ridge(Y=gen_noinvert_6p9g9, X=PC1, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys_noinvert_6p9g9_red_PC1.pv <- lfmm_test(Y=gen_noinvert_6p9g9, X=PC1, lfmm=oys_noinvert_6p9g9_red_PC1.lfmm, calibrate="gif")
+
+names(oys_noinvert_6p9g9_red_PC1.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.10, which I'm happy with.
+oys_noinvert_6p9g9_red_PC1.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys_noinvert_6p9g9_red_PC1.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_PC1.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore__noinvert_6p9g9_red_PC1 <- oys_noinvert_6p9g9_red_PC1.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif__noinvert_6p9g9_red_PC1 <- oys_noinvert_6p9g9_red_PC1.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv_noinvert_6p9g9_red_PC1 <- pchisq(zscore__noinvert_6p9g9_red_PC1^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys_noinvert_6p9g9_red_PC1.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_PC1.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.09)")
+hist(adj.pv_noinvert_6p9g9_red_PC1, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys_noinvert_6p9g9_red_PC1.qv <- qvalue(oys_noinvert_6p9g9_red_PC1.pv$calibrated.pvalue)$qvalues
+length(which(oys_noinvert_6p9g9_red_PC1.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys_noinvert_6p9g9_red_PC1.FDR.1 <- which(oys_noinvert_6p9g9_red_PC1.qv < 0.1) ## identify which SNPs these are
+oys_noinvert_6p9g9_red_PC1.FDR.1
+```
+
+```{r}
+invisible(lapply(oys_noinvert_6p9g9_red_PC1.FDR.1, write, "outliers_lfmm2_noinvert_6p9g9_red_PC1.txt", append=TRUE))
+```
+
+**PC2**
+
+```{r}
+oys_noinvert_6p9g9_red_PC2.lfmm <- lfmm_ridge(Y=gen_noinvert_6p9g9, X=PC2, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys_noinvert_6p9g9_red_PC2.pv <- lfmm_test(Y=gen_noinvert_6p9g9, X=PC2, lfmm=oys_noinvert_6p9g9_red_PC2.lfmm, calibrate="gif")
+
+names(oys_noinvert_6p9g9_red_PC2.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.06, which I'm happy with.
+oys_noinvert_6p9g9_red_PC2.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys_noinvert_6p9g9_red_PC2.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_PC2.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore__noinvert_6p9g9_red_PC2 <- oys_noinvert_6p9g9_red_PC2.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif__noinvert_6p9g9_red_PC2 <- oys_noinvert_6p9g9_red_PC2.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv_noinvert_6p9g9_red_PC2 <- pchisq(zscore__noinvert_6p9g9_red_PC2^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys_noinvert_6p9g9_red_PC2.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_PC2.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.06)")
+hist(adj.pv_noinvert_6p9g9_red_PC2, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys_noinvert_6p9g9_red_PC2.qv <- qvalue(oys_noinvert_6p9g9_red_PC2.pv$calibrated.pvalue)$qvalues
+length(which(oys_noinvert_6p9g9_red_PC2.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys_noinvert_6p9g9_red_PC2.FDR.1 <- which(oys_noinvert_6p9g9_red_PC2.qv < 0.1) ## identify which SNPs these are
+oys_noinvert_6p9g9_red_PC2.FDR.1
+```
+
+```{r}
+# invisible(lapply(oys_noinvert_6p9g9_red_PC2.FDR.1, write, "outliers_lfmm2_noinvert_6p9g9_red_PC2.txt", append=TRUE))
+```
+
+**PC3**
+
+```{r}
+oys_noinvert_6p9g9_red_PC3.lfmm <- lfmm_ridge(Y=gen_noinvert_6p9g9, X=PC3, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys_noinvert_6p9g9_red_PC3.pv <- lfmm_test(Y=gen_noinvert_6p9g9, X=PC3, lfmm=oys_noinvert_6p9g9_red_PC3.lfmm, calibrate="gif")
+
+names(oys_noinvert_6p9g9_red_PC3.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.03, which I'm happy with.
+oys_noinvert_6p9g9_red_PC3.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys_noinvert_6p9g9_red_PC3.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_PC3.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore__noinvert_6p9g9_red_PC3 <- oys_noinvert_6p9g9_red_PC3.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif__noinvert_6p9g9_red_PC3 <- oys_noinvert_6p9g9_red_PC3.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv_noinvert_6p9g9_red_PC3 <- pchisq(zscore__noinvert_6p9g9_red_PC3^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys_noinvert_6p9g9_red_PC3.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys_noinvert_6p9g9_red_PC3.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.03)")
+hist(adj.pv_noinvert_6p9g9_red_PC3, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys_noinvert_6p9g9_red_PC3.qv <- qvalue(oys_noinvert_6p9g9_red_PC3.pv$calibrated.pvalue)$qvalues
+length(which(oys_noinvert_6p9g9_red_PC3.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys_noinvert_6p9g9_red_PC3.FDR.1 <- which(oys_noinvert_6p9g9_red_PC3.qv < 0.1) ## identify which SNPs these are
+oys_noinvert_6p9g9_red_PC3.FDR.1
+```
+
+## Prep outlier SNP files 
+
+### Combine all LFMM2 outliers into one list:
+
+In terminal: 
+
+This will save only unique outliers (no duplicates)
+
+```
+$ cat outliers_lfmm2* | sort | uniq > red_combined_unique_outliers_lfmm2_6p9g9.txt
+```
+
+To view:
+
+```
+$ cat red_combined_unique_outliers_lfmm2_6p9g9.txt  
+
+    output:
+    10757
+    12105
+    12372
+    1364
+    13926
+    13927
+    16988
+    17899
+    18936
+    19091
+    19400
+    20651
+    4960
+    5947
+```
+
+no invert outliers
+
+```
+$ cat outliers_lfmm2_noinvert* | sort | uniq > red_combined_unique_outliers_lfmm2_no_invert_6p9g9.txt
+```
+
+To view:
+
+```
+$ cat red_combined_unique_outliers_lfmm2_no_invert_6p9g9.txt
+
+    output:
+    10757
+    12105
+    12372
+    1364
+    13926
+    13927
+    17596
+    18847
+```
+
+**Save outliers to new file**
+
+```
+# Convert SNP indices to locus position and chromosome info
+$ mawk '!/#/' SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf | cut -f1,2 > totalloci_6p9g9
+$ NUM=(`cat totalloci_6p9g9 | wc -l`)
+$ paste <(seq 1 $NUM) totalloci_6p9g9 > loci_6p9g9.plus.index
+
+# pcadapt outliers 
+$ cat outliers_pcadapt_thinned500.txt | parallel "grep -w ^{} loci_6p9g9.plus.index" | cut -f2,3 > outlier_pcadapt_thinned500.loci.txt
+
+# LFMM2_red outliers
+$ cat red_combined_unique_outliers_lfmm2_6p9g9.txt | parallel "grep -w ^{} loci_6p9g9.plus.index" | cut -f2,3> outlier_lfmm2_6p9g9_red.loci.txt
+
+$ cat outlier_lfmm2_6p9g9_red.loci.txt
+
+    output:
+    NC_035783.1 10105379
+    NC_035783.1 35005081
+    NC_035783.1 42294461
+    NC_035780.1 24512990
+    NC_035784.1 8396484
+    NC_035784.1 8396493
+    NC_035784.1 65267874 #inside inversion
+    NC_035784.1 79541695 #inside inversion
+    NC_035785.1 36953129 #inside inversion
+    NC_035785.1 41726211 #inside inversion
+    NC_035786.1 15925374
+    NC_035787.1 34532963
+    NC_035781.1 31586020
+    NC_035781.1 49023293
+```
+
+The four SNPs within the inversion have associations with Avg_pH, Avg_Sal_Jun, and PC2.
+
+Repeating for vcf with no invert
+
+```
+# Convert SNP indices to locus position and chromosome info
+$ mawk '!/#/' SNP.TRS6newdp10mafp9g9nDNAmaf052A_noinvert.recode.vcf | cut -f1,2 > totalloci_6p9g9_noinvert
+$ NUM=(`cat totalloci_6p9g9_noinvert | wc -l`)
+$ paste <(seq 1 $NUM) totalloci_6p9g9_noinvert > loci_6p9g9_noinvert.plus.index
+
+# LFMM2_red_noinvert outliers
+$ cat red_combined_unique_outliers_lfmm2_no_invert_6p9g9.txt | parallel "grep -w ^{} loci_6p9g9_noinvert.plus.index" | cut -f2,3> outlier_lfmm2_6p9g9_red_noinvert.loci.txt
+
+$ cat outlier_lfmm2_6p9g9_red_noinvert.loci.txt 
+
+    output:
+    NC_035783.1 10105379
+    NC_035783.1 35005081
+    NC_035783.1 42294461
+    NC_035780.1 24512990
+    NC_035784.1 8396484
+    NC_035784.1 8396493
+    NC_035786.1 15925374
+    NC_035787.1 34532963
+```
+
+All 8 SNPs are shared with the full SNP data set. Of the 6 from the full dataset, 4 were within the inversions. The two that are unique to the full SNP data set are associated with PC2.
+
+### Combine all outlier loci into one file
+
+To make this easier:
+
+```
+$ cat outlier_pcadapt_thinned500.loci.txt outlier_lfmm2_6p9g9_red.loci.txt  > all_6p9g9_red.outliers
+$ cat all_6p9g9_red.outliers | sort | uniq | wc -l
+
+    output:
+    70
+```
+
+There are two SNPs shared between pcadapt and lfmm2, both are located in inversions: - NC_035784.1 65267874 - NC_035785.1 41726211
+
+## Separating outlier and neutral loci into 2 VCF files
+
+**Create VCF file with just *neutral* loci**
+
+```
+$ vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --exclude-positions all_6p9g9_red.outliers --recode-INFO-all --out neutralloci6p9g9_red --recode
+
+    output:
+    After filtering, kept 60 out of 60 Individuals
+    Outputting VCF file...
+    After filtering, kept 22804 out of a possible 22874 Sites
+    Run Time = 6.00 seconds
+```
+
+*22804 neutral loci in `neutralloci6p9g9_red.recode.vcf`.*
+
+I'm going to make a second neutral loci vcf file with large inversion regions removed as they drive the population structure.
+
+```
+$ vcftools --vcf neutralloci6p9g9_red.recode.vcf --exclude-bed Detected_large_inversions.bed --recode-INFO-all --out neutralloci6p9g9_red_noinversion --recode
+
+    output:
+    After filtering, kept 60 out of 60 Individuals
+    Outputting VCF file...
+        Read 3 BED file entries.
+    After filtering, kept 21038 out of a possible 22804 Sites
+    Run Time = 6.00 seconds
+```
+
+**Create VCF file with just *outlier* loci**
+
+```
+$ vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --recode --recode-INFO-all --positions all_6p9g9_red.outliers --out outlierloci6p9g9_red
+
+    output:
+    After filtering, kept 60 out of 60 Individuals
+    Outputting VCF file...
+    After filtering, kept 70 out of a possible 22874 Sites
+    Run Time = 0.00 seconds
+```
+
+*70 outlier loci in `outlierloci6p9g9.recode.vcf`.*
+
+I'm also creating a vcf file of outliers including those unique only to pcadapt (56 SNPs). This will be used for a redundancy analysis to identify associations with the distance-based (db) outliers. 56 loci in `outlierloci6p9g9_nolfmm.recode.vcf`.
+
+```
+$ vcftools --vcf outlierloci6p9g9_red.recode.vcf --recode --recode-INFO-all --exclude-positions outlier_lfmm2_6p9g9_red.loci.txt --out outlierloci6p9g9_uniq_db
+
+    output:
+    After filtering, kept 60 out of 60 Individuals
+    Outputting VCF file...
+    After filtering, kept 56 out of a possible 70 Sites
+    Run Time = 0.00 seconds
+```
+
+*56 loci in `outlierloci6p9g9_uniq_db.recode.vcf`.*
+
+Now, I'm taking the unique to pcadapt vcf file and splitting it into a set with SNPs inside the inversions and set of SNPs outside the inversions.
+
+```
+# Inversions only
+$ vcftools --vcf outlierloci6p9g9_uniq_db.recode.vcf --recode --recode-INFO-all --bed Detected_large_inversions.bed --out outliers6p9g9_uniq_db_invert
+
+    output:
+    After filtering, kept 60 out of 60 Individuals
+    Outputting VCF file...
+        Read 3 BED file entries.
+    After filtering, kept 34 out of a possible 56 Sites
+    Run Time = 0.00 seconds
+
+# Inversions excluded
+$ vcftools --vcf outlierloci6p9g9_uniq_db.recode.vcf --recode --recode-INFO-all --exclude-bed Detected_large_inversions.bed --out outliers6p9g9_uniq_db_noinvert
+
+    output:
+    After filtering, kept 60 out of 60 Individuals
+    Outputting VCF file...
+        Read 3 BED file entries.
+    After filtering, kept 22 out of a possible 56 Sites
+    Run Time = 0.00 seconds
+```
