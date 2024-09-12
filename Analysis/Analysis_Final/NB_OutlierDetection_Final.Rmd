@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Outlier Detection for new set of samples for 6 populations (NAR and GHP excluded)
 
-Documentation for read trimming, mapping, variant calling, and SNP filtering can be accessed [here](). Four outlier detection programs were used to identify outlier SNPs (putatively under selection). pcadapt, OutFLANK, and BayeScan identify outliers based on population structure. LFMM2 identifies outliers based on associations with environmental predictors. 
+Documentation for read trimming, mapping, variant calling, and SNP filtering can be accessed [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/Analysis_Final/EecSeq_dDocent_SNPFiltering_Final.md). Four outlier detection programs were used to identify outlier SNPs (putatively under selection). pcadapt, OutFLANK, and BayeScan identify outliers based on population structure. LFMM2 identifies outliers based on associations with environmental predictors. 
 
 In terminal: 
 
