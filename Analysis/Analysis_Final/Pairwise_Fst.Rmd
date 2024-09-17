@@ -1,0 +1,85 @@
+---
+title: "Pairwise_Fst"
+author: "Amy Zyck"
+date: '2024-09-17'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Loading all the necessary packages
+library(adegenet)
+library(vcfR)
+library("radiator") # Conversion from vcf to a lot of other formats
+library("hierfstat")
+```
+
+## Making files
+
+**Make genind object**
+
+```{r}
+# VCF file with Neutral SNPs 
+my_vcf_neut <- read.vcfR("neutralloci_red.recode.vcf")
+```
+
+Convert vcf to genotype-individual format. strata6 is a txt file that contains 
+
+```{r}
+rad_neut.filt <- vcfR2genind(my_vcf_neut, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+
+rad_neut.filt
+```
+
+**Make hierfstat object**
+
+```{r}
+hf_neut.filt <- genind2hierfstat(rad_neut.filt, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+```
+
+## Pairwise Fst of neutral SNPs 
+
+```{r}
+fst_neut.mat <- pairwise.WCfst(hf_neut.filt)
+```
+
+```{r}
+# get bootstrap confidence values for Fst
+boot_neut_fst <- boot.ppfst(hf_neut.filt,nboot = 1000)
+boot5_neut_fst <- boot.ppfst(hf_neut.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+Fst_neut_ll <- boot5_neut_fst$ll
+```
+
+```{r}
+gindF_neut.fst.mat.triN <- as.matrix(fst_neut.mat)
+colnames(gindF_neut.fst.mat.triN) <- pop_order_6pops
+rownames(gindF_neut.fst.mat.triN) <- pop_order_6pops
+```
+
+```{r}
+meltedN_neut <- melt(gindF_neut.fst.mat.triN, na.rm =TRUE)
+round(gindF_neut.fst.mat.triN,4)
+```
+
+```{r}
+summary(meltedN_neut$value)
+```
+
+```{r}
+#Plotting Pairwise fst
+neut <- ggplot(data = meltedN_neut, aes(Var2, Var1, fill = value))+ geom_tile(color = "white")+ 
+  scale_fill_gradient(low = "white", high = "chocolate1", name="FST")  +
+  ggtitle(expression(atop("Pairwise FST, WC (1984) Neutral SNPs for 6 Populations", atop(italic("N = 60, L = 22,804"), ""))))+
+  labs( x = "Sampling Site", y = "Sampling Site") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),axis.text.y = element_text(size = 12)) + 
+  theme(axis.title = element_text(size = 12),legend.text = element_text(size =14), legend.title = element_text(size =14)) +
+  theme(plot.title = element_text(size = 14)) +
+coord_fixed()
+neut
+```
