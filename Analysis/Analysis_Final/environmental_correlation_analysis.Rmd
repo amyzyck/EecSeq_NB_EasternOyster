@@ -1,0 +1,493 @@
+---
+title: "NB_EnvData_CollinearTests"
+author: "Amy Zyck"
+date: '2024-05-02'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Before moving on to outlier detection programs for the EecSeq SNP dataset, I'm going to test the environmental variables for collinearity. I have a large dataset with 40 environmental variables. I'd like to explore the data and identify variables that are collinear as these can affect downstream analysis. 
+
+Dormann et al. 2013 is a nice review of methods for identifying and working with collinear predictor variables. I'd like to work through a few of these approaches to see which works best for my data. 
+
+```{r}
+install.packages("psych")
+install.packages("mvnormtest")
+install.packages("ggfortify")
+```
+
+```{r}
+library(psych)    # Used to investigate correlations among predictors
+library(vegan)    # Used to run RDA
+# library(packfor)  # Used for forward selection to ID significant predictor variables 
+library(adegenet) # Used for DAPC 
+library(dplyr)
+library(ggplot2)
+library(ggfortify)
+#library(factoextra)
+```
+
+```{r}
+# Subsetting the strata file to just include the environmental variables
+# Also shortening the column names
+# Transposing dataframe under new name - need this for running and plotting PCA 
+strata6_full <- read.csv("strata6.csv", header=TRUE)
+env_data_pop <- strata6_full %>% distinct(Population, .keep_all = TRUE)
+env_data_pop <- env_data_pop[,5:44]
+colnames(env_data_pop) <- c("SE","T_Avg","T_Min","T_Max","Sal_Avg","Sal_Min","Sal_Max","pH_Avg","DO_Avg",	"May_T_Avg","May_T_Min","May_T_Max","May_Sal_Avg","May_Sal_Min","May_Sal_Max","May_pH_Avg","May_DO_Avg",	"Jun_T_Avg","Jun_T_Min","Jun_T_Max","Jun_Sal_Avg","Jun_Sal_Min","Jun_Sal_Max","Jun_pH_Avg","Jun_DO_Avg","Jul_T_Avg",	"Jul_T_Min","Jul_T_Max","Jul_Sal_Avg","Jul_Sal_Min","Jul_Sal_Max","Jul_pH_Avg","Jul_DO_Avg","Aug_T_Avg","Aug_T_Min",	"Aug_T_Max","Aug_pH_Avg","Sept_T_Avg","Sept_T_Min","Sept_T_Max")
+env_data_bypop <- t(env_data_pop)
+```
+
+```{r}
+# removing se from data frame because it is an outlier 
+env_data_pop_nose <- env_data_pop[,2:40]
+```
+
+```{r}
+# standardizing dataset
+std_env <- scale(env_data_pop)
+std_env_t <- t(std_env)
+```
+
+```{r}
+# Pearson Correlation coefficient 
+env_corr <- abs(cor(env_data_pop))
+
+env_corr_noabs <- cor(env_data_pop)
+
+env_corr_noabs_nose <- cor(env_data_pop[,-1])
+
+env_corr_nose <- abs(cor(env_data_pop[,-1]))
+
+# Converting to a .csv file so I can explore in Excel 
+write.table(env_corr, "~/NB_capture_both/NB_ddhaplo/NB_OutlierDetect_both/NB_OutlierDetect_6pops/env_corr_6popsfull.csv", sep="\t", quote=F, row.names=T)
+```
+
+```{r}
+# We can visually look for correlations between variables:
+heatmap(abs(cor(strata6_full[,5:44])), 
+        # Compute pearson correlation (note they are absolute values)
+        col = rev(heat.colors(6)), symm = TRUE, margins = c(6,6), scale = "none",  
+        Colv = NA, Rowv = NA)
+legend("topright", 
+       title = "Absolute Pearson R",
+       legend =  round(seq(0,1, length.out = 6),1),
+       y.intersp = 0.7, bty = "n",
+       fill = rev(heat.colors(6)))
+```
+
+# Collinearity Method 1 
+
+```{r} 
+# Running PCA on correlation matrix of environmental variables (excluding SE as an outlier)
+env_pca_corr <- prcomp(env_corr_noabs_nose)
+```
+
+```{r}
+summary(env_pca_corr)
+```
+
+```{r}
+# Saving loadings from PCA as dataframe 
+corr_pca_loadings <- as.data.frame(env_pca_corr$rotation)
+```
+
+```{r}
+# Adding populations as rownames to data set for PCA 
+row.names(env_data_pop) <- c("BAR", "BIS", "GB", "KIC", "MCD", "PVD")
+```
+
+```{r}
+# Running PCA on the env dataset (with SE excluded)
+env_pca_col <- prcomp(env_data_pop[,2:40], center = TRUE, scale = TRUE, retx = TRUE)
+```
+
+```{r}
+# summary(env_pca)
+summary(env_pca_col)
+```
+
+The first 3 PCs explain a majority of the variance in the environmental data
+
+Based on the loadings from the PCA on the correlation matrix and using the PCA collinearity method from Dormann et al. (loadings >0.32 in each PC are likely collinear), three clusters of variables in PC2, 4 and 5 were identified. I only focused on the first 5 PCs as these explain 100% of the variation. This aligns with the output from the PCA run directly on the 6 observations per variable (variables as columns). This second PCA also identified a cluster in PC3. Since I have two separate PCA analyses from both the correlation matrix (recommended by Dormann et al.) and the direct variables (centered and scaled) identifying the same clusters, I am going to take these clusters and identify the variable closest to the cluster centroid. This variable will be used to represent the cluster moving forward.
+
+Determining variable closest to centroid of each cluster  
+
+```{r}
+# PC2 cluster 
+
+# Extract the loadings for the principal component (PC) that the two variables cluster on:
+pc2_loadings <- env_pca_col$rotation[, 2]
+
+# Calculate the centroid of the cluster:
+cluster_centroid_pc2 <- mean(pc2_loadings[c("T_Avg", "May_T_Avg")])
+
+# Calculate the distance between each variable and the centroid:
+distance_TAvg <- abs(pc2_loadings["T_Avg"] - cluster_centroid_pc2)
+distance_MayTAvg <- abs(pc2_loadings["May_T_Avg"] - cluster_centroid_pc2)
+
+if (distance_TAvg < distance_MayTAvg) {
+  print("Variable 1 is closer to the centroid")
+} else {
+  print("Variable 2 is closer to the centroid")
+}
+```
+
+The difference between T_Avg and centroid is 0.006971257 whereas the difference between May_T_Avg and centroid is 0.006971312, so T_Avg will represent this cluster. 
+
+```{r}
+# PC3 cluster 
+
+# Extract the loadings for the principal component (PC) that the two variables cluster on:
+pc3_loadings <- env_pca_col$rotation[, 3]
+
+# Calculate the centroid of the cluster:
+cluster_centroid_pc3 <- mean(pc3_loadings[c("pH_Avg", "May_pH_Avg")])
+
+# Calculate the distance between each variable and the centroid:
+distance_pHAvg <- abs(pc3_loadings["pH_Avg"] - cluster_centroid_pc3)
+distance_MaypHAvg <- abs(pc3_loadings["May_pH_Avg"] - cluster_centroid_pc3)
+
+if (distance_pHAvg < distance_MaypHAvg) {
+  print("Variable 1 is closer to the centroid")
+} else {
+  print("Variable 2 is closer to the centroid")
+}
+```
+
+The difference between pH_Avg and centroid is 0.011648774 whereas the difference between May_pH_Avg and centroid is 0.01164869, so May_pH_Avg will represent this cluster.
+
+```{r}
+# PC4 cluster 
+
+# Extract the loadings for the principal component (PC) that the two variables cluster on:
+pc4_loadings <- env_pca_col$rotation[, 4]
+
+# Calculate the centroid of the cluster:
+cluster_centroid_pc4 <- mean(pc4_loadings[c("May_Sal_Max", "Jul_DO_Avg", "Sept_T_Avg")])
+
+# Calculate the distance between each variable and the centroid:
+distances <- c(
+  abs(pc4_loadings["May_Sal_Max"] - cluster_centroid_pc4),
+  abs(pc4_loadings["Jul_DO_Avg"] - cluster_centroid_pc4),
+  abs(pc4_loadings["Sept_T_Avg"] - cluster_centroid_pc4)
+)
+
+# Find the index of the variable with the minimum distance
+closest_var_index <- which.min(distances)
+
+# Create a vector of variable names
+var_names <- c("Variable 1", "Variable 2", "Variable 3")
+
+# Print the result
+cat(var_names[closest_var_index], "is closest to the centroid\n")
+
+# If you want to see the distances for all variables:
+for (i in 1:3) {
+  cat(var_names[i], "distance:", distances[i], "\n")
+}
+```
+
+Sept_T_Avg will represent this cluster
+
+```{r}
+# PC5 cluster 
+
+# Extract the loadings for the principal component (PC) that the two variables cluster on:
+pc5_loadings <- env_pca_col$rotation[, 5]
+
+# Calculate the centroid of the cluster:
+cluster_centroid_pc5 <- mean(pc5_loadings[c("Jul_T_Min", "Aug_T_Min")])
+
+# Calculate the distance between each variable and the centroid:
+distance_JulTMin <- abs(pc5_loadings["Jul_T_Min"] - cluster_centroid_pc5)
+distance_AugTMin <- abs(pc5_loadings["Aug_T_Min"] - cluster_centroid_pc5)
+
+if (distance_JulTMin < distance_AugTMin) {
+  print("Variable 1 is closer to the centroid")
+} else {
+  print("Variable 2 is closer to the centroid")
+}
+```
+
+Aug_T_Min will represent this cluster. 
+
+```{r}
+# Prepping the environmental data
+
+# Excluding variables from clusters represented by other variables from PCA collinearity analysis
+drop <- c("May_Temp_Avg", "pH_Avg","May_Salinity_Max", "July_DO_Avg","July_Temp_Min")
+
+strata6_pca_coll_method <- strata6_full[,!(names(strata6_full) %in% drop)]
+
+strata6_pca_coll_method
+
+write.table(strata6_pca_coll_method, "/home/azyck/NB_capture_both/NB_ddhaplo/NB_ddhaplo_working/NB_OutlierDetection_working/strata6_pcacoll_35var", sep="\t", quote=F, row.names=F)
+```
+
+
+# Collinearity Method 2 
+
+```{r}
+# Running PCA on variables (rows are variables columns are observations)
+env_pca_row <- prcomp(env_data_bypop[2:40,], scale = TRUE, retx = TRUE)
+```
+
+```{r}
+summary(env_pca_row)
+```
+
+```{r}
+# Plotting PCA to examine clustering of variables
+autoplot(env_pca_row, data = env_data_bypop[2:40,], shape = FALSE, label = TRUE)
+```
+
+```{r}
+summary(env_pca_row)
+```
+
+```{r}
+# Plotting PCA with variables as columns
+autoplot(env_pca_col, data = env_data_pop[,2:40], shape = FALSE, label = TRUE)
+```
+
+```{r}
+summary(env_pca_col)
+```
+
+It looks like the first 3 PCs explain a majority of the variance. I will save these and include them as new "environmental variables". 
+
+```{r}
+# Save scores for PCs 1-3 to new variable
+pc_scores_env <- env_pca_col$x
+pc_scores_3 <- pc_scores_env[,1:3]
+pc_scores_3 <- as.data.frame(pc_scores_3)
+```
+
+```{r}
+# Plotting env_pca_col results with variables as loadings 
+autoplot(env_pca_col, data = env_data_pop[,2:40], shape = FALSE, label = TRUE, loadings = TRUE, loadings.label = TRUE, loadings.label.size = 3)
+```
+
+```{r}
+# Compute k-means with k = 8
+set.seed(123)
+env.km <- kmeans(scale(env_data_bypop[2:40,]), 8)
+# K-means clusters showing the group of each individuals
+env.km$cluster
+```
+
+```{r}
+# Plot k-means results 
+cluster_data_all <- data.frame(PC1 = pc_scores_envall[,1], PC2 = pc_scores_envall[,2], Cluster = as.factor(env.km$cluster))
+ggplot(cluster_data_all, aes(x = PC1, y = PC2, color = Cluster)) +
+  geom_point() +
+  geom_text(aes(label = rownames(env_data_bypop[2:40,])))+
+  theme_minimal() +
+  labs(title = "K-means Clustering of All Env Variables")
+```
+
+Within these 8 clusters, I'm going to identify the variable closest to the centroid. This will represent all variables of the cluster. 
+
+```{r}
+find_closest_to_cluster_center <- function(pca_result, kmeans_result) {
+  # Extract the principal component scores
+  pc_scores <- pca_result$x
+  
+  # Get the number of clusters
+  n_clusters <- length(unique(kmeans_result$cluster))
+  
+  # Initialize a list to store results
+  closest_variables <- list()
+  
+  for (i in 1:n_clusters) {
+    # Get the indices of variables in this cluster
+    cluster_indices <- which(kmeans_result$cluster == i)
+    
+    # Calculate the centroid of the cluster based on PC scores
+    cluster_center <- colMeans(pc_scores[cluster_indices, , drop = FALSE])
+    
+    # Calculate distances from each variable in the cluster to the cluster center
+    distances <- apply(pc_scores[cluster_indices, , drop = FALSE], 1, function(x) sum((x - cluster_center)^2))
+    
+    # Find the variable with the minimum distance
+    closest_var_index <- cluster_indices[which.min(distances)]
+    closest_var_name <- rownames(pc_scores)[closest_var_index]
+    
+    # Store the result
+    closest_variables[[paste0("Cluster_", i)]] <- closest_var_name
+  }
+  
+  return(closest_variables)
+}
+```
+
+```{r}
+# Run the function 
+closest_vars <- find_closest_to_cluster_center(env_pca_row, env.km)
+
+# Print the results
+print(closest_vars)
+```
+
+
+Performing PCA on the pH and DO variables 
+
+```{r}
+# Specifying the columns to keep 
+keep_DOpH <- c("pH_Avg","DO_Avg","May_pH_Avg","May_DO_Avg","Jun_pH_Avg","Jun_DO_Avg","Jul_pH_Avg","Jul_DO_Avg","Aug_pH_Avg")
+```
+
+```{r}
+# Specifying the columns to keep 
+keep_pH <- c("pH_Avg","May_pH_Avg","Jun_pH_Avg","Jul_pH_Avg","Aug_pH_Avg")
+```
+
+```{r}
+pH_DO <- env_data_pop[keep_DOpH]
+pH_DO_t <- t(pH_DO)
+```
+
+```{r}
+pH <- env_data_pop[keep_pH]
+pH_t <- t(pH)
+```
+
+```{r}
+# Running PCA on transposed pH and DO dataset
+pHDO_pca_t <- prcomp(pH_DO_t, scale = TRUE)
+```
+
+```{r}
+# Running PCA on transposed pH and DO dataset
+pH_pca_t <- prcomp(pH_t, scale = TRUE)
+```
+
+```{r}
+# Running PCA on pH and DO dataset
+pHDO_pca <- prcomp(pH_DO, scale = TRUE)
+```
+
+```{r}
+pHDO_loadings <- pHDO_pca$rotation
+```
+
+```{r}
+# Plotting PCA 
+autoplot(pHDO_pca_t, data = pH_DO_t, shape = FALSE, label = TRUE)
+```
+
+```{r}
+# Plotting PCA 
+autoplot(pH_pca_t, data = pH_t, shape = FALSE, label = TRUE)
+```
+
+```{r}
+# Compute k-means with k = 8
+set.seed(123)
+pHDO.km <- kmeans(scale(pH_DO_t), 4)
+# K-means clusters showing the group of each individuals
+pHDO.km$cluster
+```
+
+```{r}
+# Run the function 
+closest_vars_pHDO <- find_closest_to_cluster_center(pHDO_pca_t, pHDO.km)
+
+# Print the results
+print(closest_vars_pHDO)
+```
+
+
+Performing PCA on the Temperature variables
+
+```{r}
+# Specifying the columns to keep 
+keep_T <- c("T_Avg","T_Min","T_Max","May_T_Avg","May_T_Min","May_T_Max","Jun_T_Avg","Jun_T_Min","Jun_T_Max","Jul_T_Avg","Jul_T_Min","Jul_T_Max","Aug_T_Avg","Aug_T_Min","Aug_T_Max","Sept_T_Avg","Sept_T_Min","Sept_T_Max")
+```
+
+```{r}
+T_env <- env_data_pop[keep_T]
+T_env_t <- t(T_env)
+```
+
+```{r}
+# Running PCA on Temp dataset
+T_pca <- prcomp(T_env, scale = TRUE)
+```
+
+```{r}
+# Running PCA on transposed Temp dataset
+T_pca_t <- prcomp(T_env_t, scale = TRUE)
+```
+
+```{r}
+temp_loadings <- T_pca$rotation
+```
+
+```{r}
+# Plotting PCA 
+autoplot(T_pca, data = T_env, shape = FALSE, label = TRUE)
+```
+
+```{r}
+# Plotting PCA of transposed data 
+autoplot(T_pca_t, data = T_env_t, shape = FALSE, label = TRUE)
+```
+
+```{r}
+# Compute k-means with k = 8
+set.seed(123)
+Temp.km <- kmeans(scale(T_env_t), 3)
+# K-means clusters showing the group of each individuals
+Temp.km$cluster
+```
+
+```{r}
+library(ggplot2)
+cluster_data_temp <- data.frame(PC1 = pc_scores_temp[,1], PC2 = pc_scores_temp[,2], Cluster = as.factor(Temp.km$cluster))
+ggplot(cluster_data_temp, aes(x = PC1, y = PC2, color = Cluster)) +
+  geom_point() +
+  geom_text(aes(label = rownames(T_env_t)))+
+  theme_minimal() +
+  labs(title = "K-means Clustering of Temperature Variables")
+```
+
+
+Based on PCA analysis and kmeans clustering of the environmental variables, I'm going to create a reduced environmental dataset that includes Sewage Effluent (not collinear), T_Min, Jun_Sal_Max, T_Max, Jul_T_Min, Jul_T_Avg, Jun_Sal_Avg, Jun_Sal_Min,  pH_Avg, Jun_DO_Avg, and scores for PCs 1-3. 
+
+```{r}
+# Saving these variables to a keep variable
+env_data_pca_9var_tokeep <- c("Individual", "Population", "Latitude", "Longitude", "SewageEffluent","May_Temp_Min","June_Salinity_Max","Temp_Max", "July_Temp_Min", "July_Temp_Avg","June_Salinity_Avg","June_Salinity_Min","pH_Avg")
+```
+
+```{r}
+# saving env dataset with just variables from keep list 
+env_data_9var <- strata6_full[env_data_pca_9var_tokeep]
+```
+
+The strata file includes all individuals per population. Right now, the PC scores are saved as one value per population, so I need to duplicate each population's PC score 10 times (10 individuals per pop) before I can bind it with the environmental strata info.  
+
+```{r}
+env_pc_scores_strata <- pc_scores_3 %>%
+  slice(rep(1:n(), each = 10)) %>%
+  mutate(duplicate_id = rep(1:10, times = nrow(pc_scores_3))
+```
+
+```{r}
+pc_scores_strata <- env_pc_scores_strata[,1:3]
+rownames(pc_scores_strata) <- NULL
+```
+
+```{r}
+# Merging the reduced env dataset with the pc scores
+env_data_12var <- cbind(env_data_9var, pc_scores_strata)
+```
+
+```{r}
+write.table(env_data_12var, "/home/azyck/NB_capture_both/NB_ddhaplo/NB_ddhaplo_working/NB_PopSeaGen_Analysis_working/strata6_red_12var", sep="\t", quote=F, row.names=F)
+```
+
