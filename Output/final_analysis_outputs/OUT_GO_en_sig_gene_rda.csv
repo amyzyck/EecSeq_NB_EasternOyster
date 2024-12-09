@@ -1,0 +1,278 @@
+"","gene_name","GeneOntologyIDs","Term","Annotated","Significant","Expected","Fisher","ontology","prop.sig.genes"
+"1","LOC111099053","GO:0001732","formation of cytoplasmic translation initiation complex",4,1,0.03,0.03312,"Biological Processes",0.25
+"2","LOC111100451","GO:0006457","protein folding",130,7,1.09,0.00055,"Biological Processes",0.0538461538461538
+"3","LOC111100582","GO:0006357","regulation of transcription by RNA polymerase II",904,17,7.58,0.0024,"Biological Processes",0.0188053097345133
+"4","LOC111100582","GO:0033169","histone H3-K9 demethylation",1,1,0.01,0.00838,"Biological Processes",1
+"5","LOC111103788","GO:0006457","protein folding",130,7,1.09,0.00055,"Biological Processes",0.0538461538461538
+"6","LOC111103788","GO:0006457","protein folding",130,7,1.09,0.00055,"Biological Processes",0.0538461538461538
+"7","LOC111103788","GO:0007017","microtubule-based process",412,8,3.45,0.04002,"Biological Processes",0.0194174757281553
+"8","LOC111104368","GO:0006338","chromatin remodeling",58,3,0.49,0.0127,"Biological Processes",0.0517241379310345
+"9","LOC111104368","GO:0006357","regulation of transcription by RNA polymerase II",904,17,7.58,0.0024,"Biological Processes",0.0188053097345133
+"10","LOC111104654","GO:0097500","receptor localization to non-motile cilium",2,1,0.02,0.0167,"Biological Processes",0.5
+"11","LOC111105834","GO:0006338","chromatin remodeling",58,3,0.49,0.0127,"Biological Processes",0.0517241379310345
+"12","LOC111105834","GO:0006357","regulation of transcription by RNA polymerase II",904,17,7.58,0.0024,"Biological Processes",0.0188053097345133
+"13","LOC111105859","GO:0045736","negative regulation of cyclin-dependent protein serine/threonine kinase activity",5,1,0.04,0.04123,"Biological Processes",0.2
+"14","LOC111106378","GO:0006357","regulation of transcription by RNA polymerase II",904,17,7.58,0.0024,"Biological Processes",0.0188053097345133
+"15","LOC111108170","GO:0034620","cellular response to unfolded protein",36,2,0.3,0.0365,"Biological Processes",0.0555555555555556
+"16","LOC111108170","GO:0042026","protein refolding",37,2,0.31,0.03837,"Biological Processes",0.0540540540540541
+"17","LOC111108170","GO:0051085","chaperone cofactor-dependent protein refolding",22,2,0.18,0.01444,"Biological Processes",0.0909090909090909
+"18","LOC111109452","GO:0051923","sulfation",35,2,0.29,0.03466,"Biological Processes",0.0571428571428571
+"19","LOC111111050","GO:0007528","neuromuscular junction development",6,1,0.05,0.04927,"Biological Processes",0.166666666666667
+"20","LOC111112048","GO:0006414","translational elongation",39,3,0.33,0.03065,"Biological Processes",0.0769230769230769
+"21","LOC111112048","GO:0006414","translational elongation",39,3,0.33,0.03065,"Biological Processes",0.0769230769230769
+"22","LOC111112210","GO:0006357","regulation of transcription by RNA polymerase II",904,17,7.58,0.0024,"Biological Processes",0.0188053097345133
+"23","LOC111112210","GO:0006357","regulation of transcription by RNA polymerase II",904,17,7.58,0.0024,"Biological Processes",0.0188053097345133
+"24","LOC111115748","GO:0048268","clathrin coat assembly",6,1,0.05,0.04927,"Biological Processes",0.166666666666667
+"25","LOC111118809","GO:0006357","regulation of transcription by RNA polymerase II",904,17,7.58,0.0024,"Biological Processes",0.0188053097345133
+"26","LOC111119190","GO:0033387","putrescine biosynthetic process from ornithine",1,1,0.01,0.00838,"Biological Processes",1
+"27","LOC111119382","GO:0061780","mitotic cohesin loading",1,1,0.01,0.00838,"Biological Processes",1
+"28","LOC111119382","GO:0071169","establishment of protein localization to chromatin",2,1,0.02,0.0167,"Biological Processes",0.5
+"29","LOC111119382","GO:1990414","replication-born double-strand break repair via sister chromatid exchange",5,1,0.04,0.04123,"Biological Processes",0.2
+"30","LOC111119941","GO:0035592","establishment of protein localization to extracellular region",2,1,0.02,0.0167,"Biological Processes",0.5
+"31","LOC111120591","GO:0006457","protein folding",130,7,1.09,0.00055,"Biological Processes",0.0538461538461538
+"32","LOC111120874","GO:0097720","calcineurin-mediated signaling",1,1,0.01,0.00838,"Biological Processes",1
+"33","LOC111121859","GO:1904294","positive regulation of ERAD pathway",3,1,0.03,0.02495,"Biological Processes",0.333333333333333
+"34","LOC111122288","GO:0006166","purine ribonucleoside salvage",4,1,0.03,0.03312,"Biological Processes",0.25
+"35","LOC111122288","GO:0006166","purine ribonucleoside salvage",4,1,0.03,0.03312,"Biological Processes",0.25
+"36","LOC111122316","GO:0036371","protein localization to T-tubule",1,1,0.01,0.00838,"Biological Processes",1
+"37","LOC111122316","GO:0055117","regulation of cardiac muscle contraction",1,1,0.01,0.00838,"Biological Processes",1
+"38","LOC111125421","GO:0000278","mitotic cell cycle",258,7,2.16,0.04804,"Biological Processes",0.0271317829457364
+"39","LOC111125421","GO:0007099","centriole replication",24,2,0.2,0.01706,"Biological Processes",0.0833333333333333
+"40","LOC111125739","GO:0006357","regulation of transcription by RNA polymerase II",904,17,7.58,0.0024,"Biological Processes",0.0188053097345133
+"41","LOC111125747","GO:0042407","cristae formation",4,1,0.03,0.03312,"Biological Processes",0.25
+"42","LOC111126328","GO:0006357","regulation of transcription by RNA polymerase II",904,17,7.58,0.0024,"Biological Processes",0.0188053097345133
+"43","LOC111127230","GO:0006457","protein folding",130,7,1.09,0.00055,"Biological Processes",0.0538461538461538
+"44","LOC111127230","GO:0006457","protein folding",130,7,1.09,0.00055,"Biological Processes",0.0538461538461538
+"45","LOC111127274","GO:0006357","regulation of transcription by RNA polymerase II",904,17,7.58,0.0024,"Biological Processes",0.0188053097345133
+"46","LOC111127274","GO:0034728","nucleosome organization",63,3,0.53,0.03272,"Biological Processes",0.0476190476190476
+"47","LOC111127289","GO:0034620","cellular response to unfolded protein",36,2,0.3,0.0365,"Biological Processes",0.0555555555555556
+"48","LOC111127289","GO:0042026","protein refolding",37,2,0.31,0.03837,"Biological Processes",0.0540540540540541
+"49","LOC111127289","GO:0051085","chaperone cofactor-dependent protein refolding",22,2,0.18,0.01444,"Biological Processes",0.0909090909090909
+"50","LOC111127302","GO:0030224","monocyte differentiation",4,1,0.03,0.03312,"Biological Processes",0.25
+"51","LOC111127935","GO:0051923","sulfation",35,2,0.29,0.03466,"Biological Processes",0.0571428571428571
+"52","LOC111128838","GO:0030097","hemopoiesis",11,2,0.09,0.03287,"Biological Processes",0.181818181818182
+"53","LOC111129841","GO:0006457","protein folding",130,7,1.09,0.00055,"Biological Processes",0.0538461538461538
+"54","LOC111129841","GO:0006457","protein folding",130,7,1.09,0.00055,"Biological Processes",0.0538461538461538
+"55","LOC111129841","GO:0034605","cellular response to heat",5,1,0.04,0.04123,"Biological Processes",0.2
+"56","LOC111129898","GO:0008592","regulation of Toll signaling pathway",2,1,0.02,0.0167,"Biological Processes",0.5
+"57","LOC111130023","GO:0072344","rescue of stalled ribosome",6,1,0.05,0.04927,"Biological Processes",0.166666666666667
+"58","LOC111130023","GO:1990116","ribosome-associated ubiquitin-dependent protein catabolic process",3,1,0.03,0.02495,"Biological Processes",0.333333333333333
+"59","LOC111130257","GO:0006936","muscle contraction",8,2,0.07,0.02475,"Biological Processes",0.25
+"60","LOC111130401","GO:0046883","regulation of hormone secretion",3,1,0.03,0.02495,"Biological Processes",0.333333333333333
+"61","LOC111131007","GO:0061157","mRNA destabilization",1,1,0.01,0.00838,"Biological Processes",1
+"62","LOC111131017","GO:0006357","regulation of transcription by RNA polymerase II",904,17,7.58,0.0024,"Biological Processes",0.0188053097345133
+"63","LOC111131214","GO:0034498","early endosome to Golgi transport",2,1,0.02,0.0167,"Biological Processes",0.5
+"64","LOC111131303","GO:0006357","regulation of transcription by RNA polymerase II",904,17,7.58,0.0024,"Biological Processes",0.0188053097345133
+"65","LOC111131303","GO:0006357","regulation of transcription by RNA polymerase II",904,17,7.58,0.0024,"Biological Processes",0.0188053097345133
+"66","LOC111131413","GO:1901673","regulation of mitotic spindle assembly",1,1,0.01,0.00838,"Biological Processes",1
+"67","LOC111131730","GO:0006414","translational elongation",39,3,0.33,0.03065,"Biological Processes",0.0769230769230769
+"68","LOC111132291","GO:0018149","peptide cross-linking",5,1,0.04,0.04123,"Biological Processes",0.2
+"69","LOC111132291","GO:0018149","peptide cross-linking",5,1,0.04,0.04123,"Biological Processes",0.2
+"70","LOC111135467","GO:0090141","positive regulation of mitochondrial fission",2,1,0.02,0.0167,"Biological Processes",0.5
+"71","LOC111135736","GO:0010587","miRNA catabolic process",3,1,0.03,0.02495,"Biological Processes",0.333333333333333
+"72","LOC111136013","GO:0000278","mitotic cell cycle",258,7,2.16,0.04804,"Biological Processes",0.0271317829457364
+"73","LOC111136013","GO:0007099","centriole replication",24,2,0.2,0.01706,"Biological Processes",0.0833333333333333
+"74","LOC111136084","GO:0006338","chromatin remodeling",58,3,0.49,0.0127,"Biological Processes",0.0517241379310345
+"75","LOC111136084","GO:0006338","chromatin remodeling",58,3,0.49,0.0127,"Biological Processes",0.0517241379310345
+"76","LOC111136321","GO:0006357","regulation of transcription by RNA polymerase II",904,17,7.58,0.0024,"Biological Processes",0.0188053097345133
+"77","LOC111138170","GO:0006357","regulation of transcription by RNA polymerase II",904,17,7.58,0.0024,"Biological Processes",0.0188053097345133
+"78","LOC111138458","GO:0006357","regulation of transcription by RNA polymerase II",904,17,7.58,0.0024,"Biological Processes",0.0188053097345133
+"79","LOC111099053","GO:0005850","eukaryotic translation initiation factor 2 complex",3,1,0.03,0.0293,"Cellular Components",0.333333333333333
+"80","LOC111100451","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"81","LOC111101168","GO:0005930","axoneme",55,3,0.54,0.01695,"Cellular Components",0.0545454545454545
+"82","LOC111103275","GO:0005856","cytoskeleton",705,20,6.95,0.00019,"Cellular Components",0.0283687943262411
+"83","LOC111103788","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"84","LOC111104070","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"85","LOC111104070","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"86","LOC111104368","GO:0035060","brahma complex",2,1,0.02,0.01963,"Cellular Components",0.5
+"87","LOC111104368","GO:0071565","nBAF complex",4,1,0.04,0.03887,"Cellular Components",0.25
+"88","LOC111104654","GO:0060170","ciliary membrane",5,1,0.05,0.04836,"Cellular Components",0.2
+"89","LOC111105834","GO:0097255","R2TP complex",5,1,0.05,0.04836,"Cellular Components",0.2
+"90","LOC111105859","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"91","LOC111105859","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"92","LOC111108170","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"93","LOC111108397","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"94","LOC111109452","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"95","LOC111109553","GO:0005856","cytoskeleton",705,20,6.95,0.00019,"Cellular Components",0.0283687943262411
+"96","LOC111110034","GO:0001669","acrosomal vesicle",3,2,0.03,0.00029,"Cellular Components",0.666666666666667
+"97","LOC111110487","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"98","LOC111110777","GO:0030123","AP-3 adaptor complex",4,1,0.04,0.03887,"Cellular Components",0.25
+"99","LOC111110920","GO:0001669","acrosomal vesicle",3,2,0.03,0.00029,"Cellular Components",0.666666666666667
+"100","LOC111112048","GO:0005853","eukaryotic translation elongation factor 1 complex",3,1,0.03,0.0293,"Cellular Components",0.333333333333333
+"101","LOC111112645","GO:0005758","mitochondrial intermembrane space",16,2,0.16,0.01058,"Cellular Components",0.125
+"102","LOC111115748","GO:0099631","postsynaptic endocytic zone cytoplasmic component",2,1,0.02,0.01963,"Cellular Components",0.5
+"103","LOC111117964","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"104","LOC111118083","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"105","LOC111118152","GO:0033179","proton-transporting V-type ATPase, V0 domain",5,1,0.05,0.04836,"Cellular Components",0.2
+"106","LOC111119190","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"107","LOC111119382","GO:0090694","Scc2-Scc4 cohesin loading complex",1,1,0.01,0.00986,"Cellular Components",1
+"108","LOC111120874","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"109","LOC111120874","GO:0005955","calcineurin complex",1,1,0.01,0.00986,"Cellular Components",1
+"110","LOC111121056","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"111","LOC111121136","GO:0005930","axoneme",55,3,0.54,0.01695,"Cellular Components",0.0545454545454545
+"112","LOC111121136","GO:0036064","ciliary basal body",54,3,0.53,0.01614,"Cellular Components",0.0555555555555556
+"113","LOC111121527","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"114","LOC111121745","GO:0005685","U1 snRNP",17,2,0.17,0.01192,"Cellular Components",0.117647058823529
+"115","LOC111121745","GO:0005685","U1 snRNP",17,2,0.17,0.01192,"Cellular Components",0.117647058823529
+"116","LOC111121745","GO:0071004","U2-type prespliceosome",13,2,0.13,0.00701,"Cellular Components",0.153846153846154
+"117","LOC111122164","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"118","LOC111122316","GO:0030315","T-tubule",1,1,0.01,0.00986,"Cellular Components",1
+"119","LOC111125421","GO:0005814","centriole",48,3,0.47,0.01174,"Cellular Components",0.0625
+"120","LOC111125479","GO:0005856","cytoskeleton",705,20,6.95,0.00019,"Cellular Components",0.0283687943262411
+"121","LOC111125747","GO:0061617","MICOS complex",5,1,0.05,0.04836,"Cellular Components",0.2
+"122","LOC111125754","GO:0005930","axoneme",55,3,0.54,0.01695,"Cellular Components",0.0545454545454545
+"123","LOC111125754","GO:0036064","ciliary basal body",54,3,0.53,0.01614,"Cellular Components",0.0555555555555556
+"124","LOC111126821","GO:0048471","perinuclear region of cytoplasm",29,2,0.29,0.03295,"Cellular Components",0.0689655172413793
+"125","LOC111127289","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"126","LOC111127935","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"127","LOC111128115","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"128","LOC111128838","GO:0005856","cytoskeleton",705,20,6.95,0.00019,"Cellular Components",0.0283687943262411
+"129","LOC111129841","GO:0048471","perinuclear region of cytoplasm",29,2,0.29,0.03295,"Cellular Components",0.0689655172413793
+"130","LOC111130023","GO:1990112","RQC complex",4,1,0.04,0.03887,"Cellular Components",0.25
+"131","LOC111130040","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"132","LOC111131007","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"133","LOC111131413","GO:0005814","centriole",48,3,0.47,0.01174,"Cellular Components",0.0625
+"134","LOC111131413","GO:0005856","cytoskeleton",705,20,6.95,0.00019,"Cellular Components",0.0283687943262411
+"135","LOC111131413","GO:0005856","cytoskeleton",705,20,6.95,0.00019,"Cellular Components",0.0283687943262411
+"136","LOC111131413","GO:0036064","ciliary basal body",54,3,0.53,0.01614,"Cellular Components",0.0555555555555556
+"137","LOC111134568","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"138","LOC111134891","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"139","LOC111135070","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"140","LOC111135176","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"141","LOC111136013","GO:0005814","centriole",48,3,0.47,0.01174,"Cellular Components",0.0625
+"142","LOC111136106","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"143","LOC111136106","GO:0005856","cytoskeleton",705,20,6.95,0.00019,"Cellular Components",0.0283687943262411
+"144","LOC111136320","GO:0005685","U1 snRNP",17,2,0.17,0.01192,"Cellular Components",0.117647058823529
+"145","LOC111136320","GO:0034719","SMN-Sm protein complex",3,1,0.03,0.0293,"Cellular Components",0.333333333333333
+"146","LOC111136320","GO:0071004","U2-type prespliceosome",13,2,0.13,0.00701,"Cellular Components",0.153846153846154
+"147","LOC111136321","GO:0016602","CCAAT-binding factor complex",5,1,0.05,0.04836,"Cellular Components",0.2
+"148","LOC111136321","GO:0016602","CCAAT-binding factor complex",5,1,0.05,0.04836,"Cellular Components",0.2
+"149","LOC111136514","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"150","LOC111136938","GO:0005737","cytoplasm",5140,69,50.69,0.01549,"Cellular Components",0.0134241245136187
+"151","LOC111136988","GO:0034515","proteasome storage granule",2,1,0.02,0.01963,"Cellular Components",0.5
+"152","LOC111138046","GO:0031213","RSF complex",1,1,0.01,0.00986,"Cellular Components",1
+"153","LOC111138145","GO:0005758","mitochondrial intermembrane space",16,2,0.16,0.01058,"Cellular Components",0.125
+"154","LOC111100582","GO:0032454","histone demethylase activity (H3-K9 specific)",3,1,0.02,0.0222,"Molecular Functions",0.333333333333333
+"155","LOC111101025","GO:0003723","RNA binding",833,18,6.21,0.0104,"Molecular Functions",0.021608643457383
+"156","LOC111101025","GO:0003724","RNA helicase activity",46,2,0.34,0.0461,"Molecular Functions",0.0434782608695652
+"157","LOC111101025","GO:0003724","RNA helicase activity",46,2,0.34,0.0461,"Molecular Functions",0.0434782608695652
+"158","LOC111101025","GO:0005524","ATP binding",1286,17,9.58,0.0152,"Molecular Functions",0.0132192846034215
+"159","LOC111103250","GO:0004450","isocitrate dehydrogenase (NADP+) activity",2,1,0.01,0.0148,"Molecular Functions",0.5
+"160","LOC111103250","GO:0004450","isocitrate dehydrogenase (NADP+) activity",2,1,0.01,0.0148,"Molecular Functions",0.5
+"161","LOC111103448","GO:0003724","RNA helicase activity",46,2,0.34,0.0461,"Molecular Functions",0.0434782608695652
+"162","LOC111103448","GO:0005524","ATP binding",1286,17,9.58,0.0152,"Molecular Functions",0.0132192846034215
+"163","LOC111104070","GO:0045174","glutathione dehydrogenase (ascorbate) activity",3,1,0.02,0.0222,"Molecular Functions",0.333333333333333
+"164","LOC111104368","GO:0031491","nucleosome binding",30,3,0.22,0.0069,"Molecular Functions",0.1
+"165","LOC111105834","GO:0005524","ATP binding",1286,17,9.58,0.0152,"Molecular Functions",0.0132192846034215
+"166","LOC111105834","GO:0016887","ATPase activity",359,10,2.67,0.0017,"Molecular Functions",0.0278551532033426
+"167","LOC111105859","GO:0004861","cyclin-dependent protein serine/threonine kinase inhibitor activity",5,1,0.04,0.0367,"Molecular Functions",0.2
+"168","LOC111105859","GO:0004861","cyclin-dependent protein serine/threonine kinase inhibitor activity",5,1,0.04,0.0367,"Molecular Functions",0.2
+"169","LOC111105859","GO:0097322","7SK snRNA binding",3,1,0.02,0.0222,"Molecular Functions",0.333333333333333
+"170","LOC111108138","GO:0051015","actin filament binding",117,7,0.87,2.8e-05,"Molecular Functions",0.0598290598290598
+"171","LOC111108138","GO:0051015","actin filament binding",117,7,0.87,2.8e-05,"Molecular Functions",0.0598290598290598
+"172","LOC111108170","GO:0005524","ATP binding",1286,17,9.58,0.0152,"Molecular Functions",0.0132192846034215
+"173","LOC111108170","GO:0005524","ATP binding",1286,17,9.58,0.0152,"Molecular Functions",0.0132192846034215
+"174","LOC111108170","GO:0016887","ATPase activity",359,10,2.67,0.0017,"Molecular Functions",0.0278551532033426
+"175","LOC111108170","GO:0031072","heat shock protein binding",46,2,0.34,0.0461,"Molecular Functions",0.0434782608695652
+"176","LOC111108170","GO:0051082","unfolded protein binding",66,4,0.49,0.0015,"Molecular Functions",0.0606060606060606
+"177","LOC111108170","GO:0051787","misfolded protein binding",20,2,0.15,0.0096,"Molecular Functions",0.1
+"178","LOC111108397","GO:0031625","ubiquitin protein ligase binding",35,2,0.26,0.0279,"Molecular Functions",0.0571428571428571
+"179","LOC111110485","GO:0004565","beta-galactosidase activity",5,1,0.04,0.0367,"Molecular Functions",0.2
+"180","LOC111110485","GO:0004565","beta-galactosidase activity",5,1,0.04,0.0367,"Molecular Functions",0.2
+"181","LOC111110920","GO:0005516","calmodulin binding",35,2,0.26,0.0279,"Molecular Functions",0.0571428571428571
+"182","LOC111111143","GO:0005509","calcium ion binding",846,14,6.3,0.0043,"Molecular Functions",0.016548463356974
+"183","LOC111111143","GO:0005509","calcium ion binding",846,14,6.3,0.0043,"Molecular Functions",0.016548463356974
+"184","LOC111111143","GO:0030234","enzyme regulator activity",566,8,4.22,0.0174,"Molecular Functions",0.0141342756183746
+"185","LOC111112048","GO:0003746","translation elongation factor activity",25,2,0.19,0.0148,"Molecular Functions",0.08
+"186","LOC111112049","GO:0005509","calcium ion binding",846,14,6.3,0.0043,"Molecular Functions",0.016548463356974
+"187","LOC111112049","GO:0005509","calcium ion binding",846,14,6.3,0.0043,"Molecular Functions",0.016548463356974
+"188","LOC111115748","GO:0032050","clathrin heavy chain binding",4,1,0.03,0.0295,"Molecular Functions",0.25
+"189","LOC111117964","GO:0003723","RNA binding",833,18,6.21,0.0104,"Molecular Functions",0.021608643457383
+"190","LOC111117972","GO:0051015","actin filament binding",117,7,0.87,2.8e-05,"Molecular Functions",0.0598290598290598
+"191","LOC111118083","GO:0003723","RNA binding",833,18,6.21,0.0104,"Molecular Functions",0.021608643457383
+"192","LOC111118152","GO:0046961","proton-transporting ATPase activity, rotational mechanism",23,2,0.17,0.0126,"Molecular Functions",0.0869565217391304
+"193","LOC111118809","GO:0003723","RNA binding",833,18,6.21,0.0104,"Molecular Functions",0.021608643457383
+"194","LOC111119190","GO:0004586","ornithine decarboxylase activity",1,1,0.01,0.0074,"Molecular Functions",1
+"195","LOC111119941","GO:0005509","calcium ion binding",846,14,6.3,0.0043,"Molecular Functions",0.016548463356974
+"196","LOC111120874","GO:0005516","calmodulin binding",35,2,0.26,0.0279,"Molecular Functions",0.0571428571428571
+"197","LOC111120874","GO:0033192","calmodulin-dependent protein phosphatase activity",1,1,0.01,0.0074,"Molecular Functions",1
+"198","LOC111120994","GO:0003723","RNA binding",833,18,6.21,0.0104,"Molecular Functions",0.021608643457383
+"199","LOC111121056","GO:0005509","calcium ion binding",846,14,6.3,0.0043,"Molecular Functions",0.016548463356974
+"200","LOC111121056","GO:0005509","calcium ion binding",846,14,6.3,0.0043,"Molecular Functions",0.016548463356974
+"201","LOC111121393","GO:0005509","calcium ion binding",846,14,6.3,0.0043,"Molecular Functions",0.016548463356974
+"202","LOC111121733","GO:0051015","actin filament binding",117,7,0.87,2.8e-05,"Molecular Functions",0.0598290598290598
+"203","LOC111122066","GO:0051015","actin filament binding",117,7,0.87,2.8e-05,"Molecular Functions",0.0598290598290598
+"204","LOC111122164","GO:0005524","ATP binding",1286,17,9.58,0.0152,"Molecular Functions",0.0132192846034215
+"205","LOC111122250","GO:0042393","histone binding",71,3,0.53,0.016,"Molecular Functions",0.0422535211267606
+"206","LOC111122288","GO:0004001","adenosine kinase activity",2,1,0.01,0.0148,"Molecular Functions",0.5
+"207","LOC111122288","GO:0004001","adenosine kinase activity",2,1,0.01,0.0148,"Molecular Functions",0.5
+"208","LOC111123434","GO:0005524","ATP binding",1286,17,9.58,0.0152,"Molecular Functions",0.0132192846034215
+"209","LOC111125036","GO:0003723","RNA binding",833,18,6.21,0.0104,"Molecular Functions",0.021608643457383
+"210","LOC111125036","GO:0003723","RNA binding",833,18,6.21,0.0104,"Molecular Functions",0.021608643457383
+"211","LOC111125164","GO:0005524","ATP binding",1286,17,9.58,0.0152,"Molecular Functions",0.0132192846034215
+"212","LOC111125421","GO:0005509","calcium ion binding",846,14,6.3,0.0043,"Molecular Functions",0.016548463356974
+"213","LOC111125421","GO:0005509","calcium ion binding",846,14,6.3,0.0043,"Molecular Functions",0.016548463356974
+"214","LOC111126107","GO:0003723","RNA binding",833,18,6.21,0.0104,"Molecular Functions",0.021608643457383
+"215","LOC111126821","GO:0050699","WW domain binding",2,1,0.01,0.0148,"Molecular Functions",0.5
+"216","LOC111126968","GO:0005509","calcium ion binding",846,14,6.3,0.0043,"Molecular Functions",0.016548463356974
+"217","LOC111126968","GO:0051015","actin filament binding",117,7,0.87,2.8e-05,"Molecular Functions",0.0598290598290598
+"218","LOC111127230","GO:0005524","ATP binding",1286,17,9.58,0.0152,"Molecular Functions",0.0132192846034215
+"219","LOC111127230","GO:0016887","ATPase activity",359,10,2.67,0.0017,"Molecular Functions",0.0278551532033426
+"220","LOC111127230","GO:0051082","unfolded protein binding",66,4,0.49,0.0015,"Molecular Functions",0.0606060606060606
+"221","LOC111127230","GO:0051082","unfolded protein binding",66,4,0.49,0.0015,"Molecular Functions",0.0606060606060606
+"222","LOC111127274","GO:0005524","ATP binding",1286,17,9.58,0.0152,"Molecular Functions",0.0132192846034215
+"223","LOC111127274","GO:0016887","ATPase activity",359,10,2.67,0.0017,"Molecular Functions",0.0278551532033426
+"224","LOC111127274","GO:0031491","nucleosome binding",30,3,0.22,0.0069,"Molecular Functions",0.1
+"225","LOC111127274","GO:0042393","histone binding",71,3,0.53,0.016,"Molecular Functions",0.0422535211267606
+"226","LOC111127289","GO:0005524","ATP binding",1286,17,9.58,0.0152,"Molecular Functions",0.0132192846034215
+"227","LOC111127289","GO:0005524","ATP binding",1286,17,9.58,0.0152,"Molecular Functions",0.0132192846034215
+"228","LOC111127289","GO:0016887","ATPase activity",359,10,2.67,0.0017,"Molecular Functions",0.0278551532033426
+"229","LOC111127289","GO:0031072","heat shock protein binding",46,2,0.34,0.0461,"Molecular Functions",0.0434782608695652
+"230","LOC111127289","GO:0051082","unfolded protein binding",66,4,0.49,0.0015,"Molecular Functions",0.0606060606060606
+"231","LOC111127289","GO:0051787","misfolded protein binding",20,2,0.15,0.0096,"Molecular Functions",0.1
+"232","LOC111127302","GO:0008127","quercetin 2,3-dioxygenase activity",4,1,0.03,0.0295,"Molecular Functions",0.25
+"233","LOC111128115","GO:0031625","ubiquitin protein ligase binding",35,2,0.26,0.0279,"Molecular Functions",0.0571428571428571
+"234","LOC111128496","GO:0005509","calcium ion binding",846,14,6.3,0.0043,"Molecular Functions",0.016548463356974
+"235","LOC111128496","GO:0005509","calcium ion binding",846,14,6.3,0.0043,"Molecular Functions",0.016548463356974
+"236","LOC111128836","GO:0004104","cholinesterase activity",4,1,0.03,0.0295,"Molecular Functions",0.25
+"237","LOC111128838","GO:0005524","ATP binding",1286,17,9.58,0.0152,"Molecular Functions",0.0132192846034215
+"238","LOC111129841","GO:0005524","ATP binding",1286,17,9.58,0.0152,"Molecular Functions",0.0132192846034215
+"239","LOC111129841","GO:0005524","ATP binding",1286,17,9.58,0.0152,"Molecular Functions",0.0132192846034215
+"240","LOC111129841","GO:0016887","ATPase activity",359,10,2.67,0.0017,"Molecular Functions",0.0278551532033426
+"241","LOC111129841","GO:0016887","ATPase activity",359,10,2.67,0.0017,"Molecular Functions",0.0278551532033426
+"242","LOC111129841","GO:0051082","unfolded protein binding",66,4,0.49,0.0015,"Molecular Functions",0.0606060606060606
+"243","LOC111129841","GO:0051082","unfolded protein binding",66,4,0.49,0.0015,"Molecular Functions",0.0606060606060606
+"244","LOC111129841","GO:0097718","disordered domain specific binding",1,1,0.01,0.0074,"Molecular Functions",1
+"245","LOC111130040","GO:0005509","calcium ion binding",846,14,6.3,0.0043,"Molecular Functions",0.016548463356974
+"246","LOC111130257","GO:0051015","actin filament binding",117,7,0.87,2.8e-05,"Molecular Functions",0.0598290598290598
+"247","LOC111130401","GO:0030234","enzyme regulator activity",566,8,4.22,0.0174,"Molecular Functions",0.0141342756183746
+"248","LOC111130486","GO:0005509","calcium ion binding",846,14,6.3,0.0043,"Molecular Functions",0.016548463356974
+"249","LOC111130836","GO:0046961","proton-transporting ATPase activity, rotational mechanism",23,2,0.17,0.0126,"Molecular Functions",0.0869565217391304
+"250","LOC111130836","GO:0046961","proton-transporting ATPase activity, rotational mechanism",23,2,0.17,0.0126,"Molecular Functions",0.0869565217391304
+"251","LOC111131007","GO:1990247","N6-methyladenosine-containing RNA binding",3,1,0.02,0.0222,"Molecular Functions",0.333333333333333
+"252","LOC111131730","GO:0003746","translation elongation factor activity",25,2,0.19,0.0148,"Molecular Functions",0.08
+"253","LOC111131730","GO:0003746","translation elongation factor activity",25,2,0.19,0.0148,"Molecular Functions",0.08
+"254","LOC111132291","GO:0003810","protein-glutamine gamma-glutamyltransferase activity",5,1,0.04,0.0367,"Molecular Functions",0.2
+"255","LOC111132291","GO:0003810","protein-glutamine gamma-glutamyltransferase activity",5,1,0.04,0.0367,"Molecular Functions",0.2
+"256","LOC111132342","GO:0005509","calcium ion binding",846,14,6.3,0.0043,"Molecular Functions",0.016548463356974
+"257","LOC111133947","GO:0001641","group II metabotropic glutamate receptor activity",2,1,0.01,0.0148,"Molecular Functions",0.5
+"258","LOC111134568","GO:0005509","calcium ion binding",846,14,6.3,0.0043,"Molecular Functions",0.016548463356974
+"259","LOC111134891","GO:0051015","actin filament binding",117,7,0.87,2.8e-05,"Molecular Functions",0.0598290598290598
+"260","LOC111135467","GO:0005524","ATP binding",1286,17,9.58,0.0152,"Molecular Functions",0.0132192846034215
+"261","LOC111135618","GO:0005524","ATP binding",1286,17,9.58,0.0152,"Molecular Functions",0.0132192846034215
+"262","LOC111135736","GO:0003723","RNA binding",833,18,6.21,0.0104,"Molecular Functions",0.021608643457383
+"263","LOC111136013","GO:0005509","calcium ion binding",846,14,6.3,0.0043,"Molecular Functions",0.016548463356974
+"264","LOC111136013","GO:0005509","calcium ion binding",846,14,6.3,0.0043,"Molecular Functions",0.016548463356974
+"265","LOC111136084","GO:0005524","ATP binding",1286,17,9.58,0.0152,"Molecular Functions",0.0132192846034215
+"266","LOC111136084","GO:0016887","ATPase activity",359,10,2.67,0.0017,"Molecular Functions",0.0278551532033426
+"267","LOC111136084","GO:0042393","histone binding",71,3,0.53,0.016,"Molecular Functions",0.0422535211267606
+"268","LOC111136156","GO:0005509","calcium ion binding",846,14,6.3,0.0043,"Molecular Functions",0.016548463356974
+"269","LOC111136320","GO:0003723","RNA binding",833,18,6.21,0.0104,"Molecular Functions",0.021608643457383
+"270","LOC111136320","GO:0003723","RNA binding",833,18,6.21,0.0104,"Molecular Functions",0.021608643457383
+"271","LOC111136514","GO:0005524","ATP binding",1286,17,9.58,0.0152,"Molecular Functions",0.0132192846034215
+"272","LOC111136938","GO:0030159","receptor signaling complex scaffold activity",4,1,0.03,0.0295,"Molecular Functions",0.25
+"273","LOC111136988","GO:0030234","enzyme regulator activity",566,8,4.22,0.0174,"Molecular Functions",0.0141342756183746
+"274","LOC111137042","GO:0005524","ATP binding",1286,17,9.58,0.0152,"Molecular Functions",0.0132192846034215
+"275","LOC111138145","GO:1990050","phosphatidic acid transporter activity",3,1,0.02,0.0222,"Molecular Functions",0.333333333333333
+"276","LOC111138235","GO:0008143","poly(A) binding",6,1,0.04,0.0439,"Molecular Functions",0.166666666666667
+"277","LOC111138235","GO:0008266","poly(U) RNA binding",3,1,0.02,0.0222,"Molecular Functions",0.333333333333333
