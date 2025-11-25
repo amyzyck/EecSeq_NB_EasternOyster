@@ -1,0 +1,4023 @@
+---
+title: "NB_PopSeaGenAnalysis_OutlierSNPs"
+author: "Amy Zyck"
+date: '2024-07-22'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Population and Seascape Genomics Analyses on Outlier SNP data sets 
+
+Outlier SNPs were identified across four different detection programs documented [here](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/Analysis_Final/NB_OutlierDetection_Final.Rmd). There are seven different outlier sets: 
+
+1.  Original full set of outlier SNPs - 70 loci (outlierloci6p9g9_red.recode.vcf)
+2.  pcadapt outliers only - 56 loci (outlierloci6p9g9_db.recode.vcf)
+3.  pcadapt outliers inside inversions - 34 loci (outliers6p9g9_db_invert.recode.vcf)
+4.  pcadapt outliers outside inversions - 22 loci (outliers6p9g9_db_noinvert.recode.vcf)
+5.  LFMM outliers only - 14 loci (outlierloci6p9g9_lfmm.recode.vcf)
+6.  LFMM outliers inside inversions - 6 loci (outliers6p9g9_lfmm_invert.recode.vcf)
+7.  LFMM outliers outside inversions - 8 loci (outliers6p9g9_lfmm_noinvert.recode.vcf)
+8.  RDA outliers - 291 loci (outliers_rda.recode.vcf)
+9.  New full set of outlier SNPs with RDA added (outlierloci_new.recode.vcf) 
+
+On each outlier SNP set, I will be measuring population pairwise Fst (population differentiation) and heterozygosity (genetic diversity). For the  pcadapt outlier SNP sets, I will also run a redundancy analysis to investigate associations with environmental predictors. 
+
+
+### Combine all outlier loci into one file
+
+To make this easier:
+
+```
+$ cat outlier_pcadapt_thinned500.loci.txt outlier_lfmm2_6p9g9_red.loci.txt outliers_rda_sal_min.loci.txt > all.new.outliers
+$ cat all.new.outliers | sort | uniq | wc -l
+
+    output:
+    361
+```
+
+```
+$ vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --recode --recode-INFO-all --positions all.new.outliers --out outlierloci_new
+
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+After filtering, kept 361 out of a possible 22874 Sites
+Run Time = 0.00 seconds
+```
+
+
+## Organizing vcf files
+
+In terminal:
+
+In `NB_ddhaplo_working` directory, make a new directory for Pop and Sea Gen analyses
+
+```
+$ mkdir NB_PopSeaGen_Analysis_working 
+$ cd NB_PopSeaGen_Analysis_working
+```
+
+Make a sub directory for the outlier SNP sets and link vcf files 
+
+```
+$ mkdir Outlier_SNPs_6p9g9
+$ cd Outlier_SNPs_6p9g9
+
+$ ln -s ../../NB_OutlierDetection_working/outlierloci6p9g9* .
+$ ln -s ../../NB_OutlierDetection_working/outliers6p9g9* .
+```
+
+The markdown file will be organized by analysis type. I'll repeat the steps for each analysis across the four different outlier SNP sets, following this order and naming scheme:
+
+1. Full set of outlier SNPs - full
+2.  pcadapt outliers only - db
+3.  pcadapt outliers inside inversions - db_invert
+4.  pcadapt outliers outside inversions - db_noinvert
+5.  lfmm outliers only - lfmm
+6.  lfmm outliers inside inversions - lfmm_invert
+7.  lfmm outliers outside inversions - lfmm_noinvert
+8.  RDA outliers - rda
+9.  New set of outlier SNPs - all
+
+This organization will allow me to more easily compare results across files within each analysis. 
+
+```{r}
+#Loading all the necessary packages
+library(adegenet)
+library(vcfR)
+library("radiator") # Conversion from vcf to a lot of other formats
+library("dplyr")
+library("hierfstat")
+library("ggplot2") #For plotting
+library("reshape2") #For plotting
+#library("plyr")
+#library("cowplot") #For plotting manuscript figs
+library(PCAviz)  #Visualizing output of PCA
+#library("stringr")
+library(tidyverse)
+library("poppr")
+library(eulerr)
+```
+
+## Making files
+
+```{r}
+# Setting up strata file - population info and environmental data 
+strata6 <- read.table("../strata6_red_12var", header=TRUE)
+
+# Making new version of strata file with one row per population
+strata_6pops <- strata6 %>% distinct(Population, .keep_all = TRUE)
+```
+
+```{r}
+#Providing population names for plotting
+pop_order_6pops <- c("BAR","BIS","GB","KIC","MCD","PVD")
+```
+
+**Make genind object**
+
+Full SNP set 
+
+```{r}
+# VCF file with full SNP dataset
+my_vcf_out_full <- read.vcfR("outlierloci6p9g9_red.recode.vcf")
+```
+
+```{r}
+rad_out_full.filt <- vcfR2genind(my_vcf_out_full, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+
+rad_out_full.filt
+```
+
+```{r}
+info_out_full <- as.data.frame(read.table("../strata6_red_12var",header = T,sep = "\t",stringsAsFactors = F))
+mystrats_out_full <- as.data.frame(matrix(nrow = length(indNames(rad_out_full.filt)),ncol=16))
+just_out_full.strats <- select(info_out_full,c("Population"))
+stratted_out_full.filt <- strata(rad_out_full.filt, formula= Population, combine = TRUE,just_out_full.strats)
+stratted_out_full.filt@other <- info_out_full[,4:17]
+
+stratted_out_full.filt
+```
+
+**Make hierfstat object**
+
+```{r}
+hf_out_full.filt <- genind2hierfstat(rad_out_full.filt, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+```
+
+
+pcadapt (db) SNP set 
+
+```{r}
+# VCF file with db SNP dataset
+my_vcf_out_db <- read.vcfR("outlierloci6p9g9_db.recode.vcf")
+```
+
+```{r}
+rad_out_db.filt <- vcfR2genind(my_vcf_out_db, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+
+rad_out_db.filt
+```
+
+```{r}
+info_out_db <- as.data.frame(read.table("../strata6_red_12var",header = T,sep = "\t",stringsAsFactors = F))
+mystrats_out_db <- as.data.frame(matrix(nrow = length(indNames(rad_out_db.filt)),ncol=16))
+just_out_db.strats <- select(info_out_db,c("Population"))
+stratted_out_db.filt <- strata(rad_out_db.filt, formula= Population, combine = TRUE,just_out_db.strats)
+stratted_out_db.filt@other <- info_out_db[,4:17]
+
+stratted_out_db.filt
+```
+
+**Make hierfstat object**
+
+```{r}
+hf_out_db.filt <- genind2hierfstat(rad_out_db.filt, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+```
+
+
+pcadapt inside inversion (db_invert) SNP set 
+
+```{r}
+# VCF file with db_invert SNP dataset
+my_vcf_out_db_invert <- read.vcfR("outliers6p9g9_db_invert.recode.vcf")
+```
+
+```{r}
+rad_out_db_invert.filt <- vcfR2genind(my_vcf_out_db_invert, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+
+rad_out_db_invert.filt
+```
+
+```{r}
+info_out_db_invert <- as.data.frame(read.table("../strata6_red_12var",header = T,sep = "\t",stringsAsFactors = F))
+mystrats_out_db_invert <- as.data.frame(matrix(nrow = length(indNames(rad_out_db_invert.filt)),ncol=16))
+just_out_db_invert.strats <- select(info_out_db_invert,c("Population"))
+stratted_out_db_invert.filt <- strata(rad_out_db_invert.filt, formula= Population, combine = TRUE,just_out_db_invert.strats)
+stratted_out_db_invert.filt@other <- info_out_db_invert[,4:17]
+
+stratted_out_db_invert.filt
+```
+
+**Make hierfstat object**
+
+```{r}
+hf_out_db_invert.filt <- genind2hierfstat(rad_out_db_invert.filt, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+```
+
+
+pcadapt outside inversion (db_noinvert) SNP set 
+
+```{r}
+# VCF file with db_noinvert SNP dataset
+my_vcf_out_db_noinvert <- read.vcfR("outliers6p9g9_db_noinvert.recode.vcf")
+```
+
+```{r}
+rad_out_db_noinvert.filt <- vcfR2genind(my_vcf_out_db_noinvert, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+
+rad_out_db_noinvert.filt
+```
+
+```{r}
+info_out_db_noinvert <- as.data.frame(read.table("../strata6_red_12var",header = T,sep = "\t",stringsAsFactors = F))
+mystrats_out_db_noinvert <- as.data.frame(matrix(nrow = length(indNames(rad_out_db_noinvert.filt)),ncol=16))
+just_out_db_noinvert.strats <- select(info_out_db_noinvert,c("Population"))
+stratted_out_db_noinvert.filt <- strata(rad_out_db_noinvert.filt, formula= Population, combine = TRUE,just_out_db_noinvert.strats)
+stratted_out_db_noinvert.filt@other <- info_out_db_noinvert[,4:17]
+
+stratted_out_db_noinvert.filt
+```
+
+**Make hierfstat object**
+
+```{r}
+hf_out_db_noinvert.filt <- genind2hierfstat(rad_out_db_noinvert.filt, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+```
+
+
+LFMM (lfmm) SNP set 
+
+```{r}
+# VCF file with lfmm SNP dataset
+my_vcf_out_lfmm <- read.vcfR("outlierloci6p9g9_lfmm.recode.vcf")
+```
+
+```{r}
+rad_out_lfmm.filt <- vcfR2genind(my_vcf_out_lfmm, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+
+rad_out_lfmm.filt
+```
+
+```{r}
+info_out_lfmm <- as.data.frame(read.table("../strata6_red_12var",header = T,sep = "\t",stringsAsFactors = F))
+mystrats_out_lfmm <- as.data.frame(matrix(nrow = length(indNames(rad_out_lfmm.filt)),ncol=16))
+just_out_lfmm.strats <- select(info_out_lfmm,c("Population"))
+stratted_out_lfmm.filt <- strata(rad_out_lfmm.filt, formula= Population, combine = TRUE,just_out_lfmm.strats)
+stratted_out_lfmm.filt@other <- info_out_lfmm[,4:17]
+
+stratted_out_lfmm.filt
+```
+
+**Make hierfstat object**
+
+```{r}
+hf_out_lfmm.filt <- genind2hierfstat(rad_out_lfmm.filt, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+```
+
+
+LFMM inside inversion (lfmm_invert) SNP set 
+
+```{r}
+# VCF file with lfmm_invert SNP dataset
+my_vcf_out_lfmm_invert <- read.vcfR("outliers6p9g9_lfmm_invert.recode.vcf")
+```
+
+```{r}
+rad_out_lfmm_invert.filt <- vcfR2genind(my_vcf_out_lfmm_invert, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+
+rad_out_lfmm_invert.filt
+```
+
+```{r}
+info_out_lfmm_invert <- as.data.frame(read.table("../strata6_red_12var",header = T,sep = "\t",stringsAsFactors = F))
+mystrats_out_lfmm_invert <- as.data.frame(matrix(nrow = length(indNames(rad_out_lfmm_invert.filt)),ncol=16))
+just_out_lfmm_invert.strats <- select(info_out_lfmm_invert,c("Population"))
+stratted_out_lfmm_invert.filt <- strata(rad_out_lfmm_invert.filt, formula= Population, combine = TRUE,just_out_lfmm_invert.strats)
+stratted_out_lfmm_invert.filt@other <- info_out_lfmm_invert[,4:17]
+
+stratted_out_lfmm_invert.filt
+```
+
+**Make hierfstat object**
+
+```{r}
+hf_out_lfmm_invert.filt <- genind2hierfstat(rad_out_lfmm_invert.filt, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+```
+
+
+LFMM outside inversion (lfmm_noinvert) SNP set 
+
+```{r}
+# VCF file with lfmm_noinvert SNP dataset
+my_vcf_out_lfmm_noinvert <- read.vcfR("outliers6p9g9_lfmm_noinvert.recode.vcf")
+```
+
+```{r}
+rad_out_lfmm_noinvert.filt <- vcfR2genind(my_vcf_out_lfmm_noinvert, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+
+rad_out_lfmm_noinvert.filt
+```
+
+```{r}
+info_out_lfmm_noinvert <- as.data.frame(read.table("../strata6_red_12var",header = T,sep = "\t",stringsAsFactors = F))
+mystrats_out_lfmm_noinvert <- as.data.frame(matrix(nrow = length(indNames(rad_out_lfmm_noinvert.filt)),ncol=16))
+just_out_lfmm_noinvert.strats <- select(info_out_lfmm_noinvert,c("Population"))
+stratted_out_lfmm_noinvert.filt <- strata(rad_out_lfmm_noinvert.filt, formula= Population, combine = TRUE,just_out_lfmm_noinvert.strats)
+stratted_out_lfmm_noinvert.filt@other <- info_out_lfmm_noinvert[,4:17]
+
+stratted_out_lfmm_noinvert.filt
+```
+
+**Make hierfstat object**
+
+```{r}
+hf_out_lfmm_noinvert.filt <- genind2hierfstat(rad_out_lfmm_noinvert.filt, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+```
+
+RDA (rda) SNP set 
+
+```{r}
+# VCF file with rda SNP dataset
+my_vcf_out_rda <- read.vcfR("outliers_rda_final.recode.vcf")
+```
+
+```{r}
+rad_out_rda.filt <- vcfR2genind(my_vcf_out_rda, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+
+rad_out_rda.filt
+```
+
+```{r}
+info_out_rda <- as.data.frame(read.table("../strata6_red_12var",header = T,sep = "\t",stringsAsFactors = F))
+mystrats_out_rda <- as.data.frame(matrix(nrow = length(indNames(rad_out_rda.filt)),ncol=16))
+just_out_rda.strats <- dplyr::select(info_out_rda,c("Population"))
+stratted_out_rda.filt <- strata(rad_out_rda.filt, formula= Population, combine = TRUE,just_out_rda.strats)
+stratted_out_rda.filt@other <- info_out_rda[,4:17]
+
+stratted_out_rda.filt
+```
+
+**Make hierfstat object**
+
+```{r}
+hf_out_rda.filt <- genind2hierfstat(rad_out_rda.filt, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+```
+
+full_new (full_new) SNP set 
+
+```{r}
+# VCF file with full_new SNP dataset
+my_vcf_out_full_new <- read.vcfR("outlierloci_new.recode.vcf")
+```
+
+```{r}
+rad_out_full_new.filt <- vcfR2genind(my_vcf_out_full_new, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+
+rad_out_full_new.filt
+```
+
+```{r}
+info_out_full_new <- as.data.frame(read.table("../strata6_red_12var",header = T,sep = "\t",stringsAsFactors = F))
+mystrats_out_full_new <- as.data.frame(matrix(nrow = length(indNames(rad_out_full_new.filt)),ncol=16))
+just_out_full_new.strats <- dplyr::select(info_out_full_new,c("Population"))
+stratted_out_full_new.filt <- strata(rad_out_full_new.filt, formula= Population, combine = TRUE,just_out_full_new.strats)
+stratted_out_full_new.filt@other <- info_out_full_new[,4:17]
+
+stratted_out_full_new.filt
+```
+
+**Make hierfstat object**
+
+```{r}
+hf_out_full_new.filt <- genind2hierfstat(rad_out_full_new.filt, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+```
+
+
+full_final (full_final) SNP set 
+
+```{r}
+# VCF file with full_final SNP dataset
+my_vcf_out_full_final <- read.vcfR("outliers_full_final.recode.vcf")
+```
+
+```{r}
+rad_out_full_final.filt <- vcfR2genind(my_vcf_out_full_final, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+
+rad_out_full_final.filt
+```
+
+```{r}
+info_out_full_final <- as.data.frame(read.table("../strata6_red_12var",header = T,sep = "\t",stringsAsFactors = F))
+mystrats_out_full_final <- as.data.frame(matrix(nrow = length(indNames(rad_out_full_final.filt)),ncol=16))
+just_out_full_final.strats <- dplyr::select(info_out_full_final,c("Population"))
+stratted_out_full_final.filt <- strata(rad_out_full_final.filt, formula= Population, combine = TRUE,just_out_full_final.strats)
+stratted_out_full_final.filt@other <- info_out_full_final[,4:17]
+
+stratted_out_full_final.filt
+```
+
+**Make hierfstat object**
+
+```{r}
+hf_out_full_final.filt <- genind2hierfstat(rad_out_full_final.filt, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+```
+
+
+## Pairwise Fst  
+
+Full SNP set 
+
+```{r}
+fst_out_full.mat <- pairwise.WCfst(hf_out_full.filt)
+```
+
+```{r}
+# get bootstrap confidence values for Fst
+boot_out_full_fst <- boot.ppfst(hf_out_full.filt,nboot = 1000)
+boot5_out_full_fst <- boot.ppfst(hf_out_full.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+Fst_out_full_ll <- boot5_out_full_fst$ll
+```
+
+```{r}
+gindF_out_full.fst.mat.triN <- as.matrix(fst_out_full.mat)
+colnames(gindF_out_full.fst.mat.triN) <- pop_order_6pops
+rownames(gindF_out_full.fst.mat.triN) <- pop_order_6pops
+```
+
+```{r}
+meltedN_out_full <- reshape2::melt(gindF_out_full.fst.mat.triN, na.rm =TRUE)
+round(gindF_out_full.fst.mat.triN,4)
+```
+
+```{r}
+summary(meltedN_out_full$value)
+```
+
+```{r}
+#Plotting Pairwise fst
+out_full <- ggplot(data = meltedN_out_full, aes(Var2, Var1, fill = value))+ geom_tile(color = "white")+ 
+  scale_fill_gradient(low = "white", high = "blue1", name="FST")  +
+  ggtitle(expression(atop("Pairwise FST, WC (1984) full outlier SNPs for 6 Populations", atop(italic("N = 60, L = 70"), ""))))+
+  labs( x = "Sampling Site", y = "Sampling Site") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),axis.text.y = element_text(size = 12)) + 
+  theme(axis.title = element_text(size = 12),legend.text = element_text(size =14), legend.title = element_text(size =14)) +
+  theme(plot.title = element_text(size = 14)) +
+coord_fixed()
+out_full
+```
+
+
+pcadapt (db) SNP set 
+
+```{r}
+fst_out_db.mat <- pairwise.WCfst(hf_out_db.filt)
+```
+
+```{r}
+# get bootstrap confidence values for Fst
+boot_out_db_fst <- boot.ppfst(hf_out_db.filt,nboot = 1000)
+boot5_out_db_fst <- boot.ppfst(hf_out_db.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+Fst_out_db_ll <- boot5_out_db_fst$ll
+```
+
+```{r}
+gindF_out_db.fst.mat.triN <- as.matrix(fst_out_db.mat)
+colnames(gindF_out_db.fst.mat.triN) <- pop_order_6pops
+rownames(gindF_out_db.fst.mat.triN) <- pop_order_6pops
+```
+
+```{r}
+meltedN_out_db <- melt(gindF_out_db.fst.mat.triN, na.rm =TRUE)
+round(gindF_out_db.fst.mat.triN,4)
+```
+
+```{r}
+summary(meltedN_out_db$value)
+```
+
+```{r}
+#Plotting Pairwise fst
+out_db <- ggplot(data = meltedN_out_db, aes(Var2, Var1, fill = value))+ geom_tile(color = "white")+ 
+  scale_fill_gradient(low = "white", high = "blue1", name="FST")  +
+  ggtitle(expression(atop("Pairwise FST, WC (1984) db outlier SNPs for 6 Populations", atop(italic("N = 60, L = 58"), ""))))+
+  labs( x = "Sampling Site", y = "Sampling Site") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),axis.text.y = element_text(size = 12)) + 
+  theme(axis.title = element_text(size = 12),legend.text = element_text(size =14), legend.title = element_text(size =14)) +
+  theme(plot.title = element_text(size = 14)) +
+coord_fixed()
+out_db
+```
+
+
+pcadapt inside inversions (db_invert) SNP set 
+
+```{r}
+fst_out_db_invert.mat <- pairwise.WCfst(hf_out_db_invert.filt)
+```
+
+```{r}
+# get bootstrap confidence values for Fst
+boot_out_db_invert_fst <- boot.ppfst(hf_out_db_invert.filt,nboot = 1000)
+boot5_out_db_invert_fst <- boot.ppfst(hf_out_db_invert.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+Fst_out_db_invert_ll <- boot5_out_db_invert_fst$ll
+```
+
+```{r}
+gindF_out_db_invert.fst.mat.triN <- as.matrix(fst_out_db_invert.mat)
+colnames(gindF_out_db_invert.fst.mat.triN) <- pop_order_6pops
+rownames(gindF_out_db_invert.fst.mat.triN) <- pop_order_6pops
+```
+
+```{r}
+meltedN_out_db_invert <- melt(gindF_out_db_invert.fst.mat.triN, na.rm =TRUE)
+round(gindF_out_db_invert.fst.mat.triN,4)
+```
+
+```{r}
+summary(meltedN_out_db_invert$value)
+```
+
+```{r}
+#Plotting Pairwise fst
+out_db_invert <- ggplot(data = meltedN_out_db_invert, aes(Var2, Var1, fill = value))+ geom_tile(color = "white")+ 
+  scale_fill_gradient(low = "white", high = "blue1", name="FST")  +
+  ggtitle(expression(atop("Pairwise FST, WC (1984) db_invert outlier SNPs for 6 Populations", atop(italic("N = 60, L = 36"), ""))))+
+  labs( x = "Sampling Site", y = "Sampling Site") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),axis.text.y = element_text(size = 12)) + 
+  theme(axis.title = element_text(size = 12),legend.text = element_text(size =14), legend.title = element_text(size =14)) +
+  theme(plot.title = element_text(size = 14)) +
+coord_fixed()
+out_db_invert
+```
+
+
+pcadapt outside inversions (db_noinvert) SNP set 
+
+```{r}
+fst_out_db_noinvert.mat <- pairwise.WCfst(hf_out_db_noinvert.filt)
+```
+
+```{r}
+# get bootstrap confidence values for Fst
+boot_out_db_noinvert_fst <- boot.ppfst(hf_out_db_noinvert.filt,nboot = 1000)
+boot5_out_db_noinvert_fst <- boot.ppfst(hf_out_db_noinvert.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+Fst_out_db_noinvert_ll <- boot5_out_db_noinvert_fst$ll
+```
+
+```{r}
+gindF_out_db_noinvert.fst.mat.triN <- as.matrix(fst_out_db_noinvert.mat)
+colnames(gindF_out_db_noinvert.fst.mat.triN) <- pop_order_6pops
+rownames(gindF_out_db_noinvert.fst.mat.triN) <- pop_order_6pops
+```
+
+```{r}
+meltedN_out_db_noinvert <- melt(gindF_out_db_noinvert.fst.mat.triN, na.rm =TRUE)
+round(gindF_out_db_noinvert.fst.mat.triN,4)
+```
+
+```{r}
+summary(meltedN_out_db_noinvert$value)
+```
+
+```{r}
+#Plotting Pairwise fst
+out_db_noinvert <- ggplot(data = meltedN_out_db_noinvert, aes(Var2, Var1, fill = value))+ geom_tile(color = "white")+ 
+  scale_fill_gradient(low = "white", high = "blue1", name="FST")  +
+  ggtitle(expression(atop("Pairwise FST, WC (1984) db_noinvert outlier SNPs for 6 Populations", atop(italic("N = 60, L = 22"), ""))))+
+  labs( x = "Sampling Site", y = "Sampling Site") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),axis.text.y = element_text(size = 12)) + 
+  theme(axis.title = element_text(size = 12),legend.text = element_text(size =14), legend.title = element_text(size =14)) +
+  theme(plot.title = element_text(size = 14)) +
+coord_fixed()
+out_db_noinvert
+```
+
+
+LFMM (lfmm) SNP set 
+
+```{r}
+fst_out_lfmm.mat <- pairwise.WCfst(hf_out_lfmm.filt)
+```
+
+```{r}
+# get bootstrap confidence values for Fst
+boot_out_lfmm_fst <- boot.ppfst(hf_out_lfmm.filt,nboot = 1000)
+boot5_out_lfmm_fst <- boot.ppfst(hf_out_lfmm.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+Fst_out_lfmm_ll <- boot5_out_lfmm_fst$ll
+```
+
+```{r}
+gindF_out_lfmm.fst.mat.triN <- as.matrix(fst_out_lfmm.mat)
+colnames(gindF_out_lfmm.fst.mat.triN) <- pop_order_6pops
+rownames(gindF_out_lfmm.fst.mat.triN) <- pop_order_6pops
+```
+
+```{r}
+meltedN_out_lfmm <- melt(gindF_out_lfmm.fst.mat.triN, na.rm =TRUE)
+round(gindF_out_lfmm.fst.mat.triN,4)
+```
+
+```{r}
+summary(meltedN_out_lfmm$value)
+```
+
+```{r}
+#Plotting Pairwise fst
+out_lfmm <- ggplot(data = meltedN_out_lfmm, aes(Var2, Var1, fill = value))+ geom_tile(color = "white")+ 
+  scale_fill_gradient(low = "white", high = "blue1", name="FST")  +
+  ggtitle(expression(atop("Pairwise FST, WC (1984) lfmm outlier SNPs for 6 Populations", atop(italic("N = 60, L = 14"), ""))))+
+  labs( x = "Sampling Site", y = "Sampling Site") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),axis.text.y = element_text(size = 12)) + 
+  theme(axis.title = element_text(size = 12),legend.text = element_text(size =14), legend.title = element_text(size =14)) +
+  theme(plot.title = element_text(size = 14)) +
+coord_fixed()
+out_lfmm
+```
+
+
+LFMM inside inversions (lfmm_invert) SNP set 
+
+```{r}
+fst_out_lfmm_invert.mat <- pairwise.WCfst(hf_out_lfmm_invert.filt)
+```
+
+```{r}
+# get bootstrap confidence values for Fst
+boot_out_lfmm_invert_fst <- boot.ppfst(hf_out_lfmm_invert.filt,nboot = 1000)
+boot5_out_lfmm_invert_fst <- boot.ppfst(hf_out_lfmm_invert.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+Fst_out_lfmm_invert_ll <- boot5_out_lfmm_invert_fst$ll
+```
+
+```{r}
+gindF_out_lfmm_invert.fst.mat.triN <- as.matrix(fst_out_lfmm_invert.mat)
+colnames(gindF_out_lfmm_invert.fst.mat.triN) <- pop_order_6pops
+rownames(gindF_out_lfmm_invert.fst.mat.triN) <- pop_order_6pops
+```
+
+```{r}
+meltedN_out_lfmm_invert <- melt(gindF_out_lfmm_invert.fst.mat.triN, na.rm =TRUE)
+round(gindF_out_lfmm_invert.fst.mat.triN,4)
+```
+
+```{r}
+summary(meltedN_out_lfmm_invert$value)
+```
+
+```{r}
+#Plotting Pairwise fst
+out_lfmm_invert <- ggplot(data = meltedN_out_lfmm_invert, aes(Var2, Var1, fill = value))+ geom_tile(color = "white")+ 
+  scale_fill_gradient(low = "white", high = "blue1", name="FST")  +
+  ggtitle(expression(atop("Pairwise FST, WC (1984) lfmm_invert outlier SNPs for 6 Populations", atop(italic("N = 60, L = 6"), ""))))+
+  labs( x = "Sampling Site", y = "Sampling Site") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),axis.text.y = element_text(size = 12)) + 
+  theme(axis.title = element_text(size = 12),legend.text = element_text(size =14), legend.title = element_text(size =14)) +
+  theme(plot.title = element_text(size = 14)) +
+coord_fixed()
+out_lfmm_invert
+```
+
+
+LFMM outside inversions (lfmm_noinvert) SNP set 
+
+```{r}
+fst_out_lfmm_noinvert.mat <- pairwise.WCfst(hf_out_lfmm_noinvert.filt)
+```
+
+```{r}
+# get bootstrap confidence values for Fst
+boot_out_lfmm_noinvert_fst <- boot.ppfst(hf_out_lfmm_noinvert.filt,nboot = 1000)
+boot5_out_lfmm_noinvert_fst <- boot.ppfst(hf_out_lfmm_noinvert.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+Fst_out_lfmm_noinvert_ll <- boot5_out_lfmm_noinvert_fst$ll
+```
+
+```{r}
+gindF_out_lfmm_noinvert.fst.mat.triN <- as.matrix(fst_out_lfmm_noinvert.mat)
+colnames(gindF_out_lfmm_noinvert.fst.mat.triN) <- pop_order_6pops
+rownames(gindF_out_lfmm_noinvert.fst.mat.triN) <- pop_order_6pops
+```
+
+```{r}
+meltedN_out_lfmm_noinvert <- melt(gindF_out_lfmm_noinvert.fst.mat.triN, na.rm =TRUE)
+round(gindF_out_lfmm_noinvert.fst.mat.triN,4)
+```
+
+```{r}
+summary(meltedN_out_lfmm_noinvert$value)
+```
+
+```{r}
+#Plotting Pairwise fst
+out_lfmm_noinvert <- ggplot(data = meltedN_out_lfmm_noinvert, aes(Var2, Var1, fill = value))+ geom_tile(color = "white")+ 
+  scale_fill_gradient(low = "white", high = "blue1", name="FST")  +
+  ggtitle(expression(atop("Pairwise FST, WC (1984) lfmm_noinvert outlier SNPs for 6 Populations", atop(italic("N = 60, L = 8"), ""))))+
+  labs( x = "Sampling Site", y = "Sampling Site") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),axis.text.y = element_text(size = 12)) + 
+  theme(axis.title = element_text(size = 12),legend.text = element_text(size =14), legend.title = element_text(size =14)) +
+  theme(plot.title = element_text(size = 14)) +
+coord_fixed()
+out_lfmm_noinvert
+```
+
+RDA (rda) SNP set 
+
+```{r}
+fst_out_rda.mat <- pairwise.WCfst(hf_out_rda.filt)
+```
+
+```{r}
+# get bootstrap confidence values for Fst
+boot_out_rda_fst <- boot.ppfst(hf_out_rda.filt,nboot = 1000)
+boot5_out_rda_fst <- boot.ppfst(hf_out_rda.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+Fst_out_rda_ll <- boot5_out_rda_fst$ll
+```
+
+```{r}
+gindF_out_rda.fst.mat.triN <- as.matrix(fst_out_rda.mat)
+colnames(gindF_out_rda.fst.mat.triN) <- pop_order_6pops
+rownames(gindF_out_rda.fst.mat.triN) <- pop_order_6pops
+```
+
+```{r}
+meltedN_out_rda <- reshape2::melt(gindF_out_rda.fst.mat.triN, na.rm =TRUE)
+round(gindF_out_rda.fst.mat.triN,4)
+```
+
+```{r}
+summary(meltedN_out_rda$value)
+```
+
+```{r}
+#Plotting Pairwise fst
+out_rda <- ggplot(data = meltedN_out_rda, aes(Var2, Var1, fill = value))+ geom_tile(color = "white")+ 
+  scale_fill_gradient(low = "white", high = "blue1", name="FST")  +
+  ggtitle(expression(atop("Pairwise FST, WC (1984) rda outlier SNPs for 6 Populations", atop(italic("N = 60, L = 320"), ""))))+
+  labs( x = "Sampling Site", y = "Sampling Site") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),axis.text.y = element_text(size = 12)) + 
+  theme(axis.title = element_text(size = 12),legend.text = element_text(size =14), legend.title = element_text(size =14)) +
+  theme(plot.title = element_text(size = 14)) +
+coord_fixed()
+out_rda
+```
+
+full_new (full_new) SNP set 
+
+```{r}
+fst_out_full_new.mat <- pairwise.WCfst(hf_out_full_new.filt)
+```
+
+```{r}
+# get bootstrap confidence values for Fst
+boot_out_full_new_fst <- boot.ppfst(hf_out_full_new.filt,nboot = 1000)
+boot5_out_full_new_fst <- boot.ppfst(hf_out_full_new.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+Fst_out_full_new_ll <- boot5_out_full_new_fst$ll
+```
+
+```{r}
+gindF_out_full_new.fst.mat.triN <- as.matrix(fst_out_full_new.mat)
+colnames(gindF_out_full_new.fst.mat.triN) <- pop_order_6pops
+rownames(gindF_out_full_new.fst.mat.triN) <- pop_order_6pops
+```
+
+```{r}
+meltedN_out_full_new <- reshape2::melt(gindF_out_full_new.fst.mat.triN, na.rm =TRUE)
+round(gindF_out_full_new.fst.mat.triN,4)
+```
+
+```{r}
+summary(meltedN_out_full_new$value)
+```
+
+```{r}
+#Plotting Pairwise fst
+out_full_new <- ggplot(data = meltedN_out_full_new, aes(Var2, Var1, fill = value))+ geom_tile(color = "white")+ 
+  scale_fill_gradient(low = "white", high = "blue1", name="FST")  +
+  ggtitle(expression(atop("Pairwise FST, WC (1984) full_new outlier SNPs for 6 Populations", atop(italic("N = 60, L = 361"), ""))))+
+  labs( x = "Sampling Site", y = "Sampling Site") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),axis.text.y = element_text(size = 12)) + 
+  theme(axis.title = element_text(size = 12),legend.text = element_text(size =14), legend.title = element_text(size =14)) +
+  theme(plot.title = element_text(size = 14)) +
+coord_fixed()
+out_full_new
+```
+
+full_final (full_final) SNP set 
+
+```{r}
+fst_out_full_final.mat <- pairwise.WCfst(hf_out_full_final.filt)
+```
+
+```{r}
+# get bootstrap confidence values for Fst
+boot_out_full_final_fst <- boot.ppfst(hf_out_full_final.filt,nboot = 1000)
+boot5_out_full_final_fst <- boot.ppfst(hf_out_full_final.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+Fst_out_full_final_ll <- boot5_out_full_final_fst$ll
+```
+
+```{r}
+gindF_out_full_final.fst.mat.triN <- as.matrix(fst_out_full_final.mat)
+colnames(gindF_out_full_final.fst.mat.triN) <- pop_order_6pops
+rownames(gindF_out_full_final.fst.mat.triN) <- pop_order_6pops
+```
+
+```{r}
+meltedN_out_full_final <- reshape2::melt(gindF_out_full_final.fst.mat.triN, na.rm =TRUE)
+round(gindF_out_full_final.fst.mat.triN,4)
+```
+
+```{r}
+summary(meltedN_out_full_final$value)
+```
+
+```{r}
+#Plotting Pairwise fst
+out_full_final <- ggplot(data = meltedN_out_full_final, aes(Var2, Var1, fill = value))+ geom_tile(color = "white")+ 
+  scale_fill_gradient(low = "white", high = "blue1", name="FST")  +
+  ggtitle(expression(atop("Pairwise FST, WC (1984) full_final outlier SNPs for 6 Populations", atop(italic("N = 60, L = 390"), ""))))+
+  labs( x = "Sampling Site", y = "Sampling Site") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),axis.text.y = element_text(size = 12)) + 
+  theme(axis.title = element_text(size = 12),legend.text = element_text(size =14), legend.title = element_text(size =14)) +
+  theme(plot.title = element_text(size = 14)) +
+coord_fixed()
+out_full_final
+```
+
+
+## PCA 
+
+```{r}
+library("PCAviz")  #Visualizing output of PCA
+library("cowplot") #Used with PCAviz
+```
+
+```{r}
+# Create color scheme
+# green=#7FC97F, blue = #00008B, orange=#FF7F00, purple=#9A32CD, pink=#FF1493, cyan=#00FFFF
+cols_6pops = c("#7FC97F","#00008B","#FF7F00","#9A32CD","#FF1493","#00FFFF")
+```
+
+Full SNP set
+
+```{r}
+# Plot a PCA for the all outlier loci
+x_out_full <- scaleGen(rad_out_full.filt, NA.method = "mean")
+out_full_pca <- dudi.pca(x_out_full, center = FALSE, scale = FALSE, scannf = FALSE, nf = 4)
+eig_percent_out_full <- round((out_full_pca$eig / (sum(out_full_pca$eig))) * 100, 2)
+
+pca_dat_out_full <- as.data.frame(out_full_pca$li) %>%
+                    rownames_to_column(var = "ind") %>%
+                    cbind(pop = pop(rad_out_full.filt)) %>%
+                    mutate(pop = factor(pop, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD")))
+
+
+ggplot(data = pca_dat_out_full) +
+    geom_point(aes(x = Axis1, y = Axis2, colour = pop), size = 3, alpha = 0.8) +
+    scale_colour_manual(values = cols_6pops, name = "Sample site") +
+    theme_minimal() +
+    labs(x = paste("", "Axis 1: ", eig_percent_out_full[1], "%"), 
+         y = paste("", "Axis 2: ", eig_percent_out_full[2], "%"),
+         colour = "Population") +
+    coord_fixed(ratio = 1) +
+    theme(legend.position = "none")
+
+ggsave("outlier_pca_full70.png", width = 7, height = 3, units = "in", bg = "white")
+```
+
+```{r}
+# Look at the loadings on each PC1
+pca_loadings_out_full_pc1 <- out_full_pca$co %>%
+  as_tibble(rownames = "allele") %>%
+  extract(allele, c("locus","chrom", "pos", "allele"), "(NC_(\\d+)_1_(\\d+)).(\\d)") %>%
+  mutate(pos = as.integer(pos)) %>%
+  dplyr::select(locus, chrom, pos, allele, Comp1, Comp2) %>%
+  mutate(Comp1 = Comp1^2, Comp2 = Comp2^2) %>%
+  arrange(dplyr::desc(Comp1))
+
+# Look at the loadings on each PC2
+pca_loadings_out_full_pc2 <- out_full_pca$co %>%
+  as_tibble(rownames = "allele") %>%
+  extract(allele, c("locus","chrom", "pos", "allele"), "(NC_(\\d+)_1_(\\d+)).(\\d)") %>%
+  mutate(pos = as.integer(pos)) %>%
+  dplyr::select(locus, chrom, pos, allele, Comp1, Comp2) %>%
+  mutate(Comp1 = Comp1^2, Comp2 = Comp2^2) %>%
+  arrange(dplyr::desc(Comp2))
+```
+
+pcadapt (db) SNP set
+
+```{r}
+# Plot a PCA for the db outlier loci
+x_out_db <- scaleGen(rad_out_db.filt, NA.method = "mean")
+out_db_pca <- dudi.pca(x_out_db, center = FALSE, scale = FALSE, scannf = FALSE, nf = 4)
+eig_percent_out_db <- round((out_db_pca$eig / (sum(out_db_pca$eig))) * 100, 2)
+
+pca_dat_out_db <- as.data.frame(out_db_pca$li) %>%
+                    rownames_to_column(var = "ind") %>%
+                    cbind(pop = pop(rad_out_db.filt)) %>%
+                    mutate(pop = factor(pop, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD")))
+
+
+ggplot(data = pca_dat_out_db) +
+    geom_point(aes(x = Axis1, y = Axis2, colour = pop), size = 3, alpha = 0.8) +
+    scale_colour_manual(values = cols_6pops) +
+    theme_minimal() +
+    labs(x = paste("", "Axis 1: ", eig_percent_out_db[1], "%"), y = paste("", "Axis 2: ", eig_percent_out_db[2], "%")) +
+    coord_fixed(ratio = 1)
+```
+
+pcadapt inside inversions (db_invert) SNP set
+
+```{r}
+# Plot a PCA for the db_invert outlier loci
+x_out_db_invert <- scaleGen(rad_out_db_invert.filt, NA.method = "mean")
+out_db_invert_pca <- dudi.pca(x_out_db_invert, center = FALSE, scale = FALSE, scannf = FALSE, nf = 4)
+eig_percent_out_db_invert <- round((out_db_invert_pca$eig / (sum(out_db_invert_pca$eig))) * 100, 2)
+
+pca_dat_out_db_invert <- as.data.frame(out_db_invert_pca$li) %>%
+                    rownames_to_column(var = "ind") %>%
+                    cbind(pop = pop(rad_out_db_invert.filt)) %>%
+                    mutate(pop = factor(pop, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD")))
+
+
+ggplot(data = pca_dat_out_db_invert) +
+    geom_point(aes(x = Axis1, y = Axis2, colour = pop), size = 3, alpha = 0.8) +
+    scale_colour_manual(values = cols_6pops) +
+    theme_minimal() +
+    labs(x = paste("", "Axis 1: ", eig_percent_out_db_invert[1], "%"), y = paste("", "Axis 2: ", eig_percent_out_db_invert[2], "%")) +
+    coord_fixed(ratio = 1)
+```
+
+pcadapt outside inversions (db_noinvert) SNP set
+
+```{r}
+# Plot a PCA for the db_invert outlier loci
+x_out_db_noinvert <- scaleGen(rad_out_db_noinvert.filt, NA.method = "mean")
+out_db_noinvert_pca <- dudi.pca(x_out_db_noinvert, center = FALSE, scale = FALSE, scannf = FALSE, nf = 4)
+eig_percent_out_db_noinvert <- round((out_db_noinvert_pca$eig / (sum(out_db_noinvert_pca$eig))) * 100, 2)
+
+pca_dat_out_db_noinvert <- as.data.frame(out_db_noinvert_pca$li) %>%
+                    rownames_to_column(var = "ind") %>%
+                    cbind(pop = pop(rad_out_db_noinvert.filt)) %>%
+                    mutate(pop = factor(pop, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD")))
+
+
+ggplot(data = pca_dat_out_db_noinvert) +
+    geom_point(aes(x = Axis1, y = Axis2, colour = pop), size = 3, alpha = 0.8) +
+    scale_colour_manual(values = cols_6pops) +
+    theme_minimal() +
+    labs(x = paste("", "Axis 1: ", eig_percent_out_db_noinvert[1], "%"), y = paste("", "Axis 2: ", eig_percent_out_db_noinvert[2], "%")) +
+    coord_fixed(ratio = 1)
+```
+
+LFMM outliers
+
+```{r}
+# Plot a PCA for the lfmm outlier loci
+x_out_lfmm <- scaleGen(rad_out_lfmm.filt, NA.method = "mean")
+out_lfmm_pca <- dudi.pca(x_out_lfmm, center = FALSE, scale = FALSE, scannf = FALSE, nf = 4)
+eig_percent_out_lfmm <- round((out_lfmm_pca$eig / (sum(out_lfmm_pca$eig))) * 100, 2)
+
+pca_dat_out_lfmm <- as.data.frame(out_lfmm_pca$li) %>%
+                    rownames_to_column(var = "ind") %>%
+                    cbind(pop = pop(rad_out_lfmm.filt)) %>%
+                    mutate(pop = factor(pop, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD")))
+
+
+ggplot(data = pca_dat_out_lfmm) +
+    geom_point(aes(x = Axis1, y = Axis2, colour = pop), size = 3, alpha = 0.8) +
+    scale_colour_manual(values = cols_6pops) +
+    theme_minimal() +
+    labs(x = paste("", "Axis 1: ", eig_percent_out_lfmm[1], "%"), y = paste("", "Axis 2: ", eig_percent_out_lfmm[2], "%")) +
+    coord_fixed(ratio = 1)
+```
+
+RDA outliers
+
+```{r}
+# Plot a PCA for the rda outlier loci
+x_out_rda <- scaleGen(rad_out_rda.filt, NA.method = "mean")
+out_rda_pca <- dudi.pca(x_out_rda, center = FALSE, scale = FALSE, scannf = FALSE, nf = 4)
+eig_percent_out_rda <- round((out_rda_pca$eig / (sum(out_rda_pca$eig))) * 100, 2)
+
+pca_dat_out_rda <- as.data.frame(out_rda_pca$li) %>%
+                    rownames_to_column(var = "ind") %>%
+                    cbind(pop = pop(rad_out_rda.filt)) %>%
+                    mutate(pop = factor(pop, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD")))
+
+
+ggplot(data = pca_dat_out_rda) +
+    geom_point(aes(x = Axis1, y = Axis2, colour = pop), size = 3, alpha = 0.8) +
+    scale_colour_manual(values = cols_6pops) +
+    theme_minimal() +
+    labs(x = paste("", "Axis 1: ", eig_percent_out_rda[1], "%"), y = paste("", "Axis 2: ", eig_percent_out_rda[2], "%")) +
+    coord_fixed(ratio = 1)
+```
+
+full_new outliers
+
+```{r}
+# Plot a PCA for the full_new outlier loci
+x_out_full_new <- scaleGen(rad_out_full_new.filt, NA.method = "mean")
+out_full_new_pca <- dudi.pca(x_out_full_new, center = FALSE, scale = FALSE, scannf = FALSE, nf = 4)
+eig_percent_out_full_new <- round((out_full_new_pca$eig / (sum(out_full_new_pca$eig))) * 100, 2)
+
+pca_dat_out_full_new <- as.data.frame(out_full_new_pca$li) %>%
+                    rownames_to_column(var = "ind") %>%
+                    cbind(pop = pop(rad_out_full_new.filt)) %>%
+                    mutate(pop = factor(pop, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD")))
+
+
+ggplot(data = pca_dat_out_full_new) +
+    geom_point(aes(x = Axis1, y = Axis2, colour = pop), size = 3, alpha = 0.8) +
+    scale_colour_manual(values = cols_6pops) +
+    theme_minimal() +
+    labs(x = paste("", "Axis 1: ", eig_percent_out_full_new[1], "%"), y = paste("", "Axis 2: ", eig_percent_out_full_new[2], "%")) +
+    coord_fixed(ratio = 1)
+```
+
+full_final outliers
+
+```{r}
+# Plot a PCA for the full_final outlier loci
+x_out_full_final <- scaleGen(rad_out_full_final.filt, NA.method = "mean")
+out_full_final_pca <- dudi.pca(x_out_full_final, center = FALSE, scale = FALSE, scannf = FALSE, nf = 4)
+eig_percent_out_full_final <- round((out_full_final_pca$eig / (sum(out_full_final_pca$eig))) * 100, 2)
+
+pca_dat_out_full_final <- as.data.frame(out_full_final_pca$li) %>%
+                    rownames_to_column(var = "ind") %>%
+                    cbind(pop = pop(rad_out_full_final.filt)) %>%
+                    mutate(pop = factor(pop, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD")))
+
+ggplot(data = pca_dat_out_full_final) +
+    geom_point(aes(x = Axis1, y = Axis2, colour = pop), size = 3, alpha = 0.8) +
+    scale_colour_manual(values = cols_6pops, name = "Sample site") +
+    theme_minimal() +
+    labs(x = paste("", "Axis 1: ", eig_percent_out_full_final[1], "%"), 
+         y = paste("", "Axis 2: ", eig_percent_out_full_final[2], "%"),
+         colour = "Population") +
+    coord_fixed(ratio = 1)
+ggsave("outlier_pca_full390.png", width = 6, height = 4.6, units = "in", dpi = 300, bg = "white")
+```
+
+```{r}
+# Look at the loadings on each PC1
+pca_loadings_out_full_final_pc1 <- out_full_final_pca$co %>%
+  as_tibble(rownames = "allele") %>%
+  extract(allele, c("locus","chrom", "pos", "allele"), "(NC_(\\d+)_1_(\\d+)).(\\d)") %>%
+  mutate(pos = as.integer(pos)) %>%
+  dplyr::select(locus, chrom, pos, allele, Comp1, Comp2) %>%
+  mutate(Comp1 = Comp1^2, Comp2 = Comp2^2) %>%
+  arrange(dplyr::desc(Comp1))
+print(pca_loadings_out_full_final_pc1)
+
+# Look at the loadings on each PC2
+pca_loadings_out_full_final_pc2 <- out_full_final_pca$co %>%
+  as_tibble(rownames = "allele") %>%
+  extract(allele, c("locus","chrom", "pos", "allele"), "(NC_(\\d+)_1_(\\d+)).(\\d)") %>%
+  mutate(pos = as.integer(pos)) %>%
+  dplyr::select(locus, chrom, pos, allele, Comp1, Comp2) %>%
+  mutate(Comp1 = Comp1^2, Comp2 = Comp2^2) %>%
+  arrange(dplyr::desc(Comp2))
+print(pca_loadings_out_full_final_pc2)
+```
+
+## Genetic diversity (observed and expected heterozygosity)
+
+Full SNP set
+
+```{r}
+comb_out_full <- summary(stratted_out_full.filt)
+names(stratted_out_full.filt)
+```
+
+```{r}
+plot(comb_out_full$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+```
+
+```{r}
+plot(comb_out_full$Hobs,comb_out_full$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+```
+
+```{r}
+bartlett.test(list(comb_out_full$Hexp, comb_out_full$Hobs)) # a test : H0: Hexp = Hobs
+```
+
+**_No Significant difference between Observed and expected heterzygosity_**.  
+
+```{r}
+basicstat_out_full <- basic.stats(hf_out_full.filt, diploid = TRUE, digits = 3)
+```
+
+```{r}
+as.data.frame(basicstat_out_full$overall)
+```
+
+```{r}
+# get bootstrap confidence values for Fis
+boot_out_full <- boot.ppfis(hf_out_full.filt,nboot = 1000)
+boot5_out_full <- boot.ppfis(hf_out_full.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+# combine all pop statistics
+colnames(basicstat_out_full$Ho) <- pop_order_6pops
+Ho_out_full <- colMeans(basicstat_out_full$Ho,na.rm = T)
+He_out_full <- colMeans(basicstat_out_full$Hs,na.rm = T)
+Fis_out_full <- boot5_out_full$fis.ci$ll
+y_out_full <- cbind(pop_order_6pops,Ho_out_full,He_out_full, Fis_out_full, strata_6pops[,3:17])
+```
+
+```{r}
+summary(He_out_full)
+```
+
+```{r}
+summary(Fis_out_full)
+```
+
+Plotting F statistics versus each environmental variables (including lat and long)
+
+This can be modified for each F statistic (He, Ho, Fis) - just make sure to change the title in the function. 
+
+```{r}
+# Function to generate and display plots for all environmental variables
+generate_plots <- function(data, response_var, env_vars, pop_order_var) {
+  # Define color scheme
+  color_scheme <- c("#7FC97F","#00008B","#FF7F00","#9A32CD","#FF1493","#00FFFF")
+  
+  for (env_var in env_vars) {
+    # Ensure variable names are valid
+    if (!all(c(response_var, env_var, pop_order_var) %in% colnames(data))) {
+      cat("Skipping variable", env_var, "as it is not found in the data\n")
+      next
+    }
+    
+    # Remove rows with missing values in the relevant columns
+    subset_data <- data[complete.cases(data[, c(response_var, env_var, pop_order_var)]), ]
+    
+    # Calculate R² value
+    formula <- as.formula(paste(response_var, "~", env_var))
+    R2_value <- round(summary(lm(formula, data = subset_data))$r.squared, 8)
+    
+    # Generate plot title
+    plot_title <- paste("Observed Heterozygosity vs", env_var, ", outlier SNPs 6 pops")
+    
+    # Generate plot
+    p <- ggplot(subset_data, aes_string(x = env_var, y = response_var)) + 
+      geom_point(aes_string(color = pop_order_var), shape = 16, size = 3) + 
+      scale_color_manual(values = color_scheme) +
+      geom_smooth(method = "lm", color = "black") + 
+      ggtitle(plot_title) +
+      annotate(geom = "text", label = paste("italic(R^2)==", R2_value), x = Inf, y = Inf, hjust = 1.1, vjust = 2, parse = TRUE) +
+      scale_x_continuous() +
+      theme_bw() +
+      theme(legend.title = element_blank(),
+            plot.title = element_text(hjust = 0.5))
+    
+    # Print the plot
+    print(p)
+    
+    cat("Generated plot for", env_var, "\n")
+  }
+}
+```
+
+```{r}
+generate_plots(y_out_full, "Ho_out_full", colnames(y_out_full)[5:19], "pop_order_6pops")
+```
+
+```{r}
+generate_plots(y_out_full, "He_out_full", colnames(y_out_full)[5:19], "pop_order_6pops")
+```
+
+
+pcadapt (db) SNP set
+
+```{r}
+comb_out_db <- summary(stratted_out_db.filt)
+names(stratted_out_db.filt)
+```
+
+```{r}
+plot(comb_out_db$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+```
+
+```{r}
+plot(comb_out_db$Hobs,comb_out_db$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+```
+
+```{r}
+bartlett.test(list(comb_out_db$Hexp, comb_out_db$Hobs)) # a test : H0: Hexp = Hobs
+```
+
+**_No Significant difference between Observed and expected heterozygosity_**.  
+
+```{r}
+basicstat_out_db <- basic.stats(hf_out_db.filt, diploid = TRUE, digits = 3)
+```
+
+```{r}
+as.data.frame(basicstat_out_db$overall)
+```
+
+```{r}
+# get bootstrap confidence values for Fis
+boot_out_db <- boot.ppfis(hf_out_db.filt,nboot = 1000)
+boot5_out_db <- boot.ppfis(hf_out_db.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+# combine all pop statistics
+colnames(basicstat_out_db$Ho) <- pop_order_6pops
+Ho_out_db <- colMeans(basicstat_out_db$Ho,na.rm = T)
+He_out_db <- colMeans(basicstat_out_db$Hs,na.rm = T)
+Fis_out_db <- boot5_out_db$fis.ci$ll
+y_out_db <- cbind(pop_order_6pops,Ho_out_db,He_out_db, Fis_out_db, strata_6pops[,3:17])
+```
+
+```{r}
+summary(He_out_db)
+```
+
+```{r}
+summary(Fis_out_db)
+```
+
+Plotting F statistics versus each environmental variables (including lat and long)
+
+This can be modified for each F statistic (He, Ho, Fis) - just make sure to change the title in the function. 
+
+```{r}
+generate_plots(y_out_db, "Ho_out_db", colnames(y_out_db)[5:19], "pop_order_6pops")
+```
+
+```{r}
+generate_plots(y_out_db, "He_out_db", colnames(y_out_db)[5:19], "pop_order_6pops")
+```
+
+ pcadapt inside inversion (db_invert) SNP set
+
+```{r}
+comb_out_db_invert <- summary(stratted_out_db_invert.filt)
+names(stratted_out_db_invert.filt)
+```
+
+```{r}
+plot(comb_out_db_invert$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+```
+
+```{r}
+plot(comb_out_db_invert$Hobs,comb_out_db_invert$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+```
+
+```{r}
+bartlett.test(list(comb_out_db_invert$Hexp, comb_out_db_invert$Hobs)) # a test : H0: Hexp = Hobs
+```
+
+**_No Significant difference between Observed and expected heterzygosity_**.  
+
+```{r}
+basicstat_out_db_invert <- basic.stats(hf_out_db_invert.filt, diploid = TRUE, digits = 3)
+```
+
+```{r}
+as.data.frame(basicstat_out_db_invert$overall)
+```
+
+```{r}
+# get bootstrap confidence values for Fis
+boot_out_db_invert <- boot.ppfis(hf_out_db_invert.filt,nboot = 1000)
+boot5_out_db_invert <- boot.ppfis(hf_out_db_invert.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+# combine all pop statistics
+colnames(basicstat_out_db_invert$Ho) <- pop_order_6pops
+Ho_out_db_invert <- colMeans(basicstat_out_db_invert$Ho,na.rm = T)
+He_out_db_invert <- colMeans(basicstat_out_db_invert$Hs,na.rm = T)
+Fis_out_db_invert <- boot5_out_db_invert$fis.ci$ll
+y_out_db_invert <- cbind(pop_order_6pops,Ho_out_db_invert,He_out_db_invert, Fis_out_db_invert, strata_6pops[,3:17])
+```
+
+```{r}
+summary(He_out_db_invert)
+```
+
+```{r}
+summary(Fis_out_db_invert)
+```
+
+Plotting F statistics versus each environmental variables (including lat and long)
+
+This can be modified for each F statistic (He, Ho, Fis) - just make sure to change the title in the function. 
+
+```{r}
+generate_plots(y_out_db_invert, "Ho_out_db_invert", colnames(y_out_db_invert)[5:19], "pop_order_6pops")
+```
+
+```{r}
+generate_plots(y_out_db_invert, "He_out_db_invert", colnames(y_out_db_invert)[5:19], "pop_order_6pops")
+```
+
+pcadapt outside inversions (db_noinvert) SNP set
+
+```{r}
+comb_out_db_noinvert <- summary(stratted_out_db_noinvert.filt)
+names(stratted_out_db_noinvert.filt)
+```
+
+```{r}
+plot(comb_out_db_noinvert$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+```
+
+```{r}
+plot(comb_out_db_noinvert$Hobs,comb_out_db_noinvert$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+```
+
+```{r}
+bartlett.test(list(comb_out_db_noinvert$Hexp, comb_out_db_noinvert$Hobs)) # a test : H0: Hexp = Hobs
+```
+
+**_No Significant difference between Observed and expected heterzygosity_**.  
+
+```{r}
+basicstat_out_db_noinvert <- basic.stats(hf_out_db_noinvert.filt, diploid = TRUE, digits = 3)
+```
+
+```{r}
+as.data.frame(basicstat_out_db_noinvert$overall)
+```
+
+```{r}
+# get bootstrap confidence values for Fis
+boot_out_db_noinvert <- boot.ppfis(hf_out_db_noinvert.filt,nboot = 1000)
+boot5_out_db_noinvert <- boot.ppfis(hf_out_db_noinvert.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+# combine all pop statistics
+colnames(basicstat_out_db_noinvert$Ho) <- pop_order_6pops
+Ho_out_db_noinvert <- colMeans(basicstat_out_db_noinvert$Ho,na.rm = T)
+He_out_db_noinvert <- colMeans(basicstat_out_db_noinvert$Hs,na.rm = T)
+Fis_out_db_noinvert <- boot5_out_db_noinvert$fis.ci$ll
+y_out_db_noinvert <- cbind(pop_order_6pops,Ho_out_db_noinvert,He_out_db_noinvert, Fis_out_db_noinvert, strata_6pops[,3:17])
+```
+
+```{r}
+summary(He_out_db_noinvert)
+```
+
+```{r}
+summary(Fis_out_db_noinvert)
+```
+
+Plotting F statistics versus each environmental variables (including lat and long)
+
+This can be modified for each F statistic (He, Ho, Fis) - just make sure to change the title in the function. 
+
+```{r}
+generate_plots(y_out_db_noinvert, "Ho_out_db_noinvert", colnames(y_out_db_noinvert)[5:19], "pop_order_6pops")
+```
+
+```{r}
+generate_plots(y_out_db_noinvert, "He_out_db_noinvert", colnames(y_out_db_noinvert)[5:19], "pop_order_6pops")
+```
+
+LFMM (lfmm) SNP set
+
+```{r}
+comb_out_lfmm <- summary(stratted_out_lfmm.filt)
+names(stratted_out_lfmm.filt)
+```
+
+```{r}
+plot(comb_out_lfmm$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+```
+
+```{r}
+plot(comb_out_lfmm$Hobs,comb_out_lfmm$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+```
+
+```{r}
+bartlett.test(list(comb_out_lfmm$Hexp, comb_out_lfmm$Hobs)) # a test : H0: Hexp = Hobs
+```
+
+**_No Significant difference between Observed and expected heterozygosity_**.  
+
+```{r}
+basicstat_out_lfmm <- basic.stats(hf_out_lfmm.filt, diploid = TRUE, digits = 3)
+```
+
+```{r}
+as.data.frame(basicstat_out_lfmm$overall)
+```
+
+```{r}
+# get bootstrap confidence values for Fis
+boot_out_lfmm <- boot.ppfis(hf_out_lfmm.filt,nboot = 1000)
+boot5_out_lfmm <- boot.ppfis(hf_out_lfmm.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+# combine all pop statistics
+colnames(basicstat_out_lfmm$Ho) <- pop_order_6pops
+Ho_out_lfmm <- colMeans(basicstat_out_lfmm$Ho,na.rm = T)
+He_out_lfmm <- colMeans(basicstat_out_lfmm$Hs,na.rm = T)
+Fis_out_lfmm <- boot5_out_lfmm$fis.ci$ll
+y_out_lfmm <- cbind(pop_order_6pops,Ho_out_lfmm,He_out_lfmm, Fis_out_lfmm, strata_6pops[,3:17])
+```
+
+```{r}
+summary(He_out_lfmm)
+```
+
+```{r}
+summary(Fis_out_lfmm)
+```
+
+Plotting F statistics versus each environmental variables (including lat and long)
+
+This can be modified for each F statistic (He, Ho, Fis) - just make sure to change the title in the function. 
+
+```{r}
+# generate_plots(y_out_lfmm, "Ho_out_lfmm", colnames(y_out_lfmm)[5:18], "pop_order_6pops")
+```
+
+
+ LFMM inside inversion (lfmm_invert) SNP set
+
+```{r}
+comb_out_lfmm_invert <- summary(stratted_out_lfmm_invert.filt)
+names(stratted_out_lfmm_invert.filt)
+```
+
+```{r}
+plot(comb_out_lfmm_invert$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+```
+
+```{r}
+plot(comb_out_lfmm_invert$Hobs,comb_out_lfmm_invert$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+```
+
+```{r}
+bartlett.test(list(comb_out_lfmm_invert$Hexp, comb_out_lfmm_invert$Hobs)) # a test : H0: Hexp = Hobs
+```
+
+**_No Significant difference between Observed and expected heterozygosity_**.  
+
+```{r}
+basicstat_out_lfmm_invert <- basic.stats(hf_out_lfmm_invert.filt, diploid = TRUE, digits = 3)
+```
+
+```{r}
+as.data.frame(basicstat_out_lfmm_invert$overall)
+```
+
+```{r}
+# get bootstrap confidence values for Fis
+boot_out_lfmm_invert <- boot.ppfis(hf_out_lfmm_invert.filt,nboot = 1000)
+boot5_out_lfmm_invert <- boot.ppfis(hf_out_lfmm_invert.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+# combine all pop statistics
+colnames(basicstat_out_lfmm_invert$Ho) <- pop_order_6pops
+Ho_out_lfmm_invert <- colMeans(basicstat_out_lfmm_invert$Ho,na.rm = T)
+He_out_lfmm_invert <- colMeans(basicstat_out_lfmm_invert$Hs,na.rm = T)
+Fis_out_lfmm_invert <- boot5_out_lfmm_invert$fis.ci$ll
+y_out_lfmm_invert <- cbind(pop_order_6pops,Ho_out_lfmm_invert,He_out_lfmm_invert, Fis_out_lfmm_invert, strata_6pops[,3:17])
+```
+
+```{r}
+summary(He_out_lfmm_invert)
+```
+
+```{r}
+summary(Fis_out_lfmm_invert)
+```
+
+Plotting F statistics versus each environmental variables (including lat and long)
+
+This can be modified for each F statistic (He, Ho, Fis) - just make sure to change the title in the function. 
+
+```{r}
+# generate_plots(y_out_lfmm_invert, "Ho_out_lfmm_invert", colnames(y_out_lfmm_invert)[5:18], "pop_order_6pops")
+```
+
+
+LFMM outside inversions (lfmm_noinvert) SNP set
+
+```{r}
+comb_out_lfmm_noinvert <- summary(stratted_out_lfmm_noinvert.filt)
+names(stratted_out_lfmm_noinvert.filt)
+```
+
+```{r}
+plot(comb_out_lfmm_noinvert$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+```
+
+```{r}
+plot(comb_out_lfmm_noinvert$Hobs,comb_out_lfmm_noinvert$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+```
+
+```{r}
+bartlett.test(list(comb_out_lfmm_noinvert$Hexp, comb_out_lfmm_noinvert$Hobs)) # a test : H0: Hexp = Hobs
+```
+
+**_No Significant difference between Observed and expected heterozygosity_**.  
+
+```{r}
+basicstat_out_lfmm_noinvert <- basic.stats(hf_out_lfmm_noinvert.filt, diploid = TRUE, digits = 3)
+```
+
+```{r}
+as.data.frame(basicstat_out_lfmm_noinvert$overall)
+```
+
+```{r}
+# get bootstrap confidence values for Fis
+boot_out_lfmm_noinvert <- boot.ppfis(hf_out_lfmm_noinvert.filt,nboot = 1000)
+boot5_out_lfmm_noinvert <- boot.ppfis(hf_out_lfmm_noinvert.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+# combine all pop statistics
+colnames(basicstat_out_lfmm_noinvert$Ho) <- pop_order_6pops
+Ho_out_lfmm_noinvert <- colMeans(basicstat_out_lfmm_noinvert$Ho,na.rm = T)
+He_out_lfmm_noinvert <- colMeans(basicstat_out_lfmm_noinvert$Hs,na.rm = T)
+Fis_out_lfmm_noinvert <- boot5_out_lfmm_noinvert$fis.ci$ll
+y_out_lfmm_noinvert <- cbind(pop_order_6pops,Ho_out_lfmm_noinvert,He_out_lfmm_noinvert, Fis_out_lfmm_noinvert, strata_6pops[,3:17])
+```
+
+```{r}
+summary(He_out_lfmm_noinvert)
+```
+
+```{r}
+summary(Fis_out_lfmm_noinvert)
+```
+
+Plotting F statistics versus each environmental variables (including lat and long)
+
+This can be modified for each F statistic (He, Ho, Fis) - just make sure to change the title in the function. 
+
+```{r}
+# generate_plots(y_out_lfmm_noinvert, "Ho_out_lfmm_noinvert", colnames(y_out_lfmm_noinvert)[5:18], "pop_order_6pops")
+```
+
+
+RDA (rda) SNP set
+
+```{r}
+comb_out_rda <- summary(stratted_out_rda.filt)
+names(stratted_out_rda.filt)
+```
+
+```{r}
+plot(comb_out_rda$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+```
+
+```{r}
+plot(comb_out_rda$Hobs,comb_out_rda$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+```
+
+```{r}
+bartlett.test(list(comb_out_rda$Hexp, comb_out_rda$Hobs)) # a test : H0: Hexp = Hobs
+```
+
+**Significant difference between Observed and expected heterzygosity_**.  
+
+```{r}
+basicstat_out_rda <- basic.stats(hf_out_rda.filt, diploid = TRUE, digits = 3)
+```
+
+```{r}
+as.data.frame(basicstat_out_rda$overall)
+```
+
+```{r}
+# get bootstrap confidence values for Fis
+boot_out_rda <- boot.ppfis(hf_out_rda.filt,nboot = 1000)
+boot5_out_rda <- boot.ppfis(hf_out_rda.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+# combine all pop statistics
+colnames(basicstat_out_rda$Ho) <- pop_order_6pops
+Ho_out_rda <- colMeans(basicstat_out_rda$Ho,na.rm = T)
+He_out_rda <- colMeans(basicstat_out_rda$Hs,na.rm = T)
+Fis_out_rda <- boot5_out_rda$fis.ci$ll
+y_out_rda <- cbind(pop_order_6pops,Ho_out_rda,He_out_rda, Fis_out_rda, strata_6pops[,3:17])
+```
+
+```{r}
+summary(He_out_rda)
+```
+
+```{r}
+summary(Fis_out_rda)
+```
+
+Plotting F statistics versus each environmental variables (including lat and long)
+
+This can be modified for each F statistic (He, Ho, Fis) - just make sure to change the title in the function. 
+
+```{r}
+# generate_plots(y_out_rda, "Ho_out_rda", colnames(y_out_rda)[5:18], "pop_order_6pops")
+```
+
+full_new (full_new) SNP set
+
+```{r}
+comb_out_full_new <- summary(stratted_out_full_new.filt)
+names(stratted_out_full_new.filt)
+```
+
+```{r}
+plot(comb_out_full_new$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+```
+
+```{r}
+plot(comb_out_full_new$Hobs,comb_out_full_new$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+```
+
+```{r}
+bartlett.test(list(comb_out_full_new$Hexp, comb_out_full_new$Hobs)) # a test : H0: Hexp = Hobs
+```
+
+**Significant difference between Observed and expected heterzygosity_**.  
+
+```{r}
+basicstat_out_full_new <- basic.stats(hf_out_full_new.filt, diploid = TRUE, digits = 3)
+```
+
+```{r}
+as.data.frame(basicstat_out_full_new$overall)
+```
+
+```{r}
+# get bootstrap confidence values for Fis
+boot_out_full_new <- boot.ppfis(hf_out_full_new.filt,nboot = 1000)
+boot5_out_full_new <- boot.ppfis(hf_out_full_new.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+# combine all pop statistics
+colnames(basicstat_out_full_new$Ho) <- pop_order_6pops
+Ho_out_full_new <- colMeans(basicstat_out_full_new$Ho,na.rm = T)
+He_out_full_new <- colMeans(basicstat_out_full_new$Hs,na.rm = T)
+Fis_out_full_new <- boot5_out_full_new$fis.ci$ll
+y_out_full_new <- cbind(pop_order_6pops,Ho_out_full_new,He_out_full_new, Fis_out_full_new, strata_6pops[,3:17])
+```
+
+```{r}
+summary(He_out_full_new)
+```
+
+```{r}
+summary(Fis_out_full_new)
+```
+
+Plotting F statistics versus each environmental variables (including lat and long)
+
+This can be modified for each F statistic (He, Ho, Fis) - just make sure to change the title in the function. 
+
+```{r}
+# generate_plots(y_out_full_new, "Ho_out_full_new", colnames(y_out_full_new)[5:18], "pop_order_6pops")
+```
+
+full_final (full_final) SNP set
+
+```{r}
+comb_out_full_final <- summary(stratted_out_full_final.filt)
+names(stratted_out_full_final.filt)
+```
+
+```{r}
+plot(comb_out_full_final$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+```
+
+```{r}
+plot(comb_out_full_final$Hobs,comb_out_full_final$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+```
+
+```{r}
+bartlett.test(list(comb_out_full_final$Hexp, comb_out_full_final$Hobs)) # a test : H0: Hexp = Hobs
+```
+
+**Significant difference between Observed and expected heterzygosity_**.  
+
+```{r}
+basicstat_out_full_final <- basic.stats(hf_out_full_final.filt, diploid = TRUE, digits = 3)
+```
+
+```{r}
+as.data.frame(basicstat_out_full_final$overall)
+```
+
+```{r}
+# get bootstrap confidence values for Fis
+boot_out_full_final <- boot.ppfis(hf_out_full_final.filt,nboot = 1000)
+boot5_out_full_final <- boot.ppfis(hf_out_full_final.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+# combine all pop statistics
+colnames(basicstat_out_full_final$Ho) <- pop_order_6pops
+Ho_out_full_final <- colMeans(basicstat_out_full_final$Ho,na.rm = T)
+He_out_full_final <- colMeans(basicstat_out_full_final$Hs,na.rm = T)
+Fis_out_full_final <- boot5_out_full_final$fis.ci$ll
+y_out_full_final <- cbind(pop_order_6pops,Ho_out_full_final,He_out_full_final, Fis_out_full_final, strata_6pops[,3:17])
+```
+
+```{r}
+summary(He_out_full_final)
+```
+
+```{r}
+summary(Fis_out_full_final)
+```
+
+
+## Seascape Redundancy Analysis 
+
+### Loading necessary packages 
+
+```{r}
+# Load packages
+library(adegenet)
+library(poppr)
+library(dplyr)
+library(reshape2)
+library(ggplot2)
+library(vcfR)
+library(psych)
+library(adespatial)
+library(vegan)
+```
+
+### Prep Environmental Data
+
+```{r}
+# Import environmental data
+env.raw = strata_6pops[,3:17]
+```
+
+```{r}
+# Import spatial data
+dbmem.raw = read.csv("../dbmems_6pops.csv")
+```
+
+```{r}
+# Removing latitude and longitude
+env.data = subset(env.raw, select = -c(Latitude,Longitude,SewageEffluent))
+# pairs.panels(env.full_out6, scale = TRUE)
+```
+
+```{r}
+#standardize the environmental data 
+# Scale and center variables
+env.z <- decostand(env.data, method = "standardize")
+# Variables are now centered around a mean of 0
+round(apply(env.z, 2, mean), 1)
+# and scaled to have a standard deviation of 1
+apply(env.z, 2, sd)
+```
+
+```{r}
+#combine env and dbmem datasets 
+env.full = cbind(env.z, dbmem.raw)
+str(env.full)
+```
+
+### Prep allele frequency data
+
+I'm only going to run RDA on pcadapt outliers, as the environmental associations with the LFMM outliers is already known.
+
+pcadapt (db) SNP set 
+
+```{r}
+# Explore data
+rad_out_db.filt
+nLoc(rad_out_db.filt) # number of loci
+nPop(rad_out_db.filt) # number of sites
+nInd(rad_out_db.filt) # number of individuals
+summary(rad_out_db.filt$pop) # sample size
+
+# Calculate allele frequencies for each site
+allele_freqs_out_db = data.frame(rraf(rad_out_db.filt, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+
+# Keep only the first of the two alleles for each SNP (since p=1-q).
+allele_freqs_out_db = allele_freqs_out_db[, seq(1, dim(allele_freqs_out_db)[2], 2)]
+
+# Export allele frequencies
+write.csv(allele_freqs_out_db, file = "all_allele_freqs_out_db.csv", row.names = TRUE)
+```
+
+**Minor allele frequencies**
+
+```{r}
+# Separate genind object by site
+site_list_out_db = seppop(rad_out_db.filt)
+names(site_list_out_db)
+
+# Calculate the minor allele frequency for each site
+maf_list_out_db = lapply(site_list_out_db, FUN = minorAllele)
+
+# Convert list to dataframe
+maf_out_db = as.data.frame(maf_list_out_db) %>% t() %>% as.data.frame()
+
+# Export minor allele frequencies
+write.csv(maf_out_db, file = "minor_allele_freqs_out_db.csv", row.names = TRUE)
+```
+
+ pcadapt inside inversions (db_invert) SNP set 
+
+```{r}
+# Explore data
+rad_out_db_invert.filt
+nLoc(rad_out_db_invert.filt) # number of loci
+nPop(rad_out_db_invert.filt) # number of sites
+nInd(rad_out_db_invert.filt) # number of individuals
+summary(rad_out_db_invert.filt$pop) # sample size
+
+# Calculate allele frequencies for each site
+allele_freqs_out_db_invert = data.frame(rraf(rad_out_db_invert.filt, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+
+# Keep only the first of the two alleles for each SNP (since p=1-q).
+allele_freqs_out_db_invert = allele_freqs_out_db_invert[, seq(1, dim(allele_freqs_out_db_invert)[2], 2)]
+
+# Export allele frequencies
+write.csv(allele_freqs_out_db_invert, file = "all_allele_freqs_out_db_invert.csv", row.names = TRUE)
+```
+
+**Minor allele frequencies**
+
+```{r}
+# Separate genind object by site
+site_list_out_db_invert = seppop(rad_out_db_invert.filt)
+names(site_list_out_db_invert)
+
+# Calculate the minor allele frequency for each site
+maf_list_out_db_invert = lapply(site_list_out_db_invert, FUN = minorAllele)
+
+# Convert list to dataframe
+maf_out_db_invert = as.data.frame(maf_list_out_db_invert) %>% t() %>% as.data.frame()
+
+# Export minor allele frequencies
+write.csv(maf_out_db_invert, file = "minor_allele_freqs_out_db_invert.csv", row.names = TRUE)
+```
+
+ pcadapt outside inversions (db_noinvert) SNP set 
+
+```{r}
+# Explore data
+rad_out_db_noinvert.filt
+nLoc(rad_out_db_noinvert.filt) # number of loci
+nPop(rad_out_db_noinvert.filt) # number of sites
+nInd(rad_out_db_noinvert.filt) # number of individuals
+summary(rad_out_db_noinvert.filt$pop) # sample size
+
+# Calculate allele frequencies for each site
+allele_freqs_out_db_noinvert = data.frame(rraf(rad_out_db_noinvert.filt, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+
+# Keep only the first of the two alleles for each SNP (since p=1-q).
+allele_freqs_out_db_noinvert = allele_freqs_out_db_noinvert[, seq(1, dim(allele_freqs_out_db_noinvert)[2], 2)]
+
+# Export allele frequencies
+write.csv(allele_freqs_out_db_noinvert, file = "all_allele_freqs_out_db_noinvert.csv", row.names = TRUE)
+```
+
+**Minor allele frequencies**
+
+```{r}
+# Separate genind object by site
+site_list_out_db_noinvert = seppop(rad_out_db_noinvert.filt)
+names(site_list_out_db_noinvert)
+
+# Calculate the minor allele frequency for each site
+maf_list_out_db_noinvert = lapply(site_list_out_db_noinvert, FUN = minorAllele)
+
+# Convert list to dataframe
+maf_out_db_noinvert = as.data.frame(maf_list_out_db_noinvert) %>% t() %>% as.data.frame()
+
+# Export minor allele frequencies
+write.csv(maf_out_db_noinvert, file = "minor_allele_freqs_out_db_noinvert.csv", row.names = TRUE)
+```
+
+
+### Identify significant environmental predictors in RDA model
+
+```{r}
+# Set seed
+set.seed(123)
+```
+
+pcadapt (db) SNP set
+
+```{r}
+# Use forward selection to identify significant environmental variables with ordiR2step
+# first we need to create a null model and then a full model 
+## Null model
+RDA0_out_db <- rda(allele_freqs_out_db ~ 1,  env.full) 
+
+## Full model
+RDA_out_db <- rda(allele_freqs_out_db ~ ., env.full)
+
+## adjusted R squared of full. model
+adjR2.RDA_out_db <- RsquareAdj(RDA_out_db)$adj.r.squared
+
+# Running ordiR2step to identify significant environmental variables in the model 
+mod_out_db <- ordiR2step(RDA0_out_db, scope = formula(RDA_out_db), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r}
+# Use forward selection to identify significant environmental variables
+Y_out_db = allele_freqs_out_db
+X_out_db = env.z
+env.for_out_db = forward.sel(Y_out_db, X_out_db, alpha = TRUE)
+env.for_out_db
+
+# Use forward selection to identify significant dbmems
+dbmem.for_out_db = forward.sel(Y = allele_freqs_out_db, X = dbmem.raw, alpha = TRUE)
+dbmem.for_out_db
+```
+
+pcadapt inside inversions (db_invert) SNP set
+
+```{r}
+# Use forward selection to identify significant environmental variables with ordiR2step
+# first we need to create a null model and then a full model 
+## Null model
+RDA0_out_db_invert <- rda(allele_freqs_out_db_invert ~ 1,  env.full) 
+
+## Full model
+RDA_out_db_invert <- rda(allele_freqs_out_db_invert ~ ., env.full)
+
+## adjusted R squared of full. model
+adjR2.RDA_out_db_invert <- RsquareAdj(RDA_out_db_invert)$adj.r.squared
+
+# Running ordiR2step to identify significant environmental variables in the model 
+mod_out_db_invert <- ordiR2step(RDA0_out_db_invert, scope = formula(RDA_out_db_invert), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r}
+# Use forward selection to identify significant environmental variables
+Y_out_db_invert = allele_freqs_out_db_invert
+X_out_db_invert = env.z
+env.for_out_db_invert = forward.sel(Y_out_db_invert, X_out_db_invert, alpha = TRUE)
+env.for_out_db_invert
+
+# Use forward selection to identify significant dbmems
+dbmem.for_out_db_invert = forward.sel(Y = allele_freqs_out_db_invert, X = dbmem.raw, alpha = TRUE)
+dbmem.for_out_db_invert
+```
+
+pcadapt outside inversions (db_noinvert) SNP set
+
+```{r}
+# Use forward selection to identify significant environmental variables with ordiR2step
+# first we need to create a null model and then a full model 
+## Null model
+RDA0_out_db_noinvert <- rda(allele_freqs_out_db_noinvert ~ 1,  env.full) 
+
+## Full model
+RDA_out_db_noinvert <- rda(allele_freqs_out_db_noinvert ~ ., env.full)
+
+## adjusted R squared of full. model
+adjR2.RDA_out_db_noinvert <- RsquareAdj(RDA_out_db_noinvert)$adj.r.squared
+
+# Running ordiR2step to identify significant environmental variables in the model 
+mod_out_db_noinvert <- ordiR2step(RDA0_out_db_noinvert, scope = formula(RDA_out_db_noinvert), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r}
+# Use forward selection to identify significant environmental variables
+Y_out_db_noinvert = allele_freqs_out_db_noinvert
+X_out_db_noinvert = env.z
+env.for_out_db_noinvert = forward.sel(Y_out_db_noinvert, X_out_db_noinvert, alpha = TRUE)
+env.for_out_db_noinvert
+
+# Use forward selection to identify significant dbmems
+dbmem.for_out_db_noinvert = forward.sel(Y = allele_freqs_out_db_noinvert, X = dbmem.raw, alpha = TRUE)
+dbmem.for_out_db_noinvert
+```
+
+
+### Running the Redundancy analysis
+
+**Prepping for plotting** 
+
+```{r}
+# Create a data frame to correctly color regions
+# Row names are the same across all allele frequency data sets  
+col_dframe = data.frame("site" = rownames(allele_freqs_out_db))
+
+# Function to add regional labels to dataframe
+addregion_6pops = function(x){
+  # If pop label is present function will output the region
+  if(x=="BAR") y = " Barrington "
+  if(x=="BIS") y = " Bissel Cove "
+  if(x=="GB") y = " Greenwich Bay "
+  if(x=="KIC") y = " Kickemuit "
+  if(x=="MCD") y = " Donovan Marsh "
+  if(x=="PVD") y = " Providence "
+  return(y)
+}
+
+# Add regional labels
+col_dframe$region = sapply(col_dframe$site, addregion_6pops)
+
+# Add factor levels
+region_order_6pops = c(" Barrington "," Bissel Cove "," Greenwich Bay "," Kickemuit "," Donovan Marsh ", " Providence ")
+col_dframe$region = factor(col_dframe$region, levels = region_order_6pops)
+```
+
+```{r}
+# Create colour scheme
+# blue=#000088, green=#7FC97F, orange=#FF7F00, red=#E31A1C, purple=#9A32CD, pink=#FF1493, yellow=#FFD700, cyan=#00FFFF
+cols_6pops = c("#7FC97F","#00008B","#FF7F00","#9A32CD","#FF1493","#00FFFF")
+```
+
+
+**Running RDA and plotting** 
+
+pcadapt (db) SNP set
+
+```{r}
+# Perform RDA with all significant variables
+rda_out_db = rda(allele_freqs_out_db ~ PC2 + PC3, data = env.full, scale = TRUE)
+rda_out_db
+
+# Model summaries
+RsquareAdj(rda_out_db) # adjusted Rsquared 
+vif.cca(rda_out_db) # variance inflation factor (<10 OK)
+anova.cca(rda_out_db, permutations = 1000) # db model
+anova.cca(rda_out_db, permutations = 1000, by="margin") # per variable 
+
+# Variance explained by each canonical axis
+summary(eigenvals(rda_out_db, model = "constrained"))
+screeplot(rda_out_db)
+```
+
+```{r}
+# Visualize results of RDA
+#png("rda_out_db.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda_out_db, type="n", scaling = 3)
+# SITES
+points(rda_out_db, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(rda_out_db, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda_out_db, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda_out_db, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda_out_db)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 0.5)
+# dev.off()
+```
+
+```{r}
+# First, run the ANOVA to get the p-value
+anova_result <- anova.cca(rda_out_db, permutations = 1000)
+p_value <- anova_result$`Pr(>F)`[1]  # Extract the overall p-value
+
+# Set up the plot with transparent background
+png("rda_out_db.png", width = 9, height = 7, units = "in", res = 600, bg = "white")
+
+# Increase the base font size
+par(cex = 1.2)  # This will increase all text sizes by 20%
+
+# Create the plot without axis labels
+plot(rda_out_db, type="n", scaling = 3, 
+     col.axis = "black", col.lab = "black", col.main = "black", col.sub = "black",
+     xlab = "", ylab = "")  # Suppress axis labels here
+
+# SITES
+points(rda_out_db, display="sites", pch=21, scaling=3, cex=1.8, col="black",
+       bg=adjustcolor(cols_6pops[col_dframe$region], alpha.f = 0.7))  # sites with semi-transparent fill
+text(rda_out_db, display="sites", scaling = 3, col="black", font=2, pos=4, cex = 1.2)
+
+# PREDICTORS
+text(rda_out_db, display="bp", scaling=3, col="red1", cex=1.0, lwd=2)
+
+# OTHER LABELS
+#adj.R2 = round(RsquareAdj(rda_out_db)$adj.r.squared, 3)
+#p_value_formatted = format.pval(p_value, digits = 3)
+#mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)~";"~"p"~"="~.(p_value_formatted)), 
+      #side = 3, adj = 0.5, col = "black", cex = 1.2)
+
+# Add axis labels in black with larger font (only once)
+title(xlab = "RDA1 (82.5%)", ylab = "RDA2 (17.5%)", col.lab = "black", cex.lab = 1.4)
+
+# Increase axis text size
+par(cex.axis = 1.2)
+
+# Add a white box around the plot
+box(col = "black")
+
+dev.off()
+```
+
+### Partial redundancy analysis - controlling for geographic location
+
+```{r}
+# Perform RDA while controlling for geographical location
+pRDA_out_db = rda(allele_freqs_out_db ~ PC2 + PC3 + Condition(MEM1 + MEM2),
+           data = env.full, scale = TRUE)
+pRDA_out_db
+RsquareAdj(pRDA_out_db) # adjusted Rsquared 
+vif.cca(pRDA_out_db) # variance inflation factor (<10 OK)
+anova.cca(pRDA_out_db, permutations = 1000) # db model
+anova.cca(pRDA_out_db, permutations = 1000, by = "margin") # per variable
+
+# Variance explained by each canonical axis
+summary(eigenvals(pRDA_out_db, model = "constrained"))
+screeplot(pRDA_out_db)
+```
+
+```{r}
+# Visualise results of pRDA
+#png("partial_rda_out_db.png", width = 9, height = 7, units = "in", res = 600)
+plot(pRDA_out_db, type="n", scaling = 3)
+#title("Seascape partial redundancy analysis")
+# SITES
+points(pRDA_out_db, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(pRDA_out_db, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(pRDA_out_db, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(pRDA, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("topleft", legend=levels(col_dframe_out6$region), bty="n", col="black",
+       #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(pRDA_out_db)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 0.5)
+#dev.off()
+```
+
+
+pcadapt inside inversion (db_invert) SNP set
+
+```{r}
+# Perform RDA with all significant variables
+rda_out_db_invert = rda(allele_freqs_out_db_invert ~ PC2 + PC3, data = env.full, scale = TRUE)
+rda_out_db_invert
+
+# Model summaries
+RsquareAdj(rda_out_db_invert) # adjusted Rsquared 
+vif.cca(rda_out_db_invert) # variance inflation factor (<10 OK)
+anova.cca(rda_out_db_invert, permutations = 1000) # db_invert model
+anova.cca(rda_out_db_invert, permutations = 1000, by="margin") # per variable 
+
+# Variance explained by each canonical axis
+summary(eigenvals(rda_out_db_invert, model = "constrained"))
+screeplot(rda_out_db_invert)
+```
+
+```{r}
+# Visualize results of RDA
+#png("rda_out_db_invert.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda_out_db_invert, type="n", scaling = 3)
+# SITES
+points(rda_out_db_invert, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(rda_out_db_invert, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda_out_db_invert, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda_out_db_invert, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda_out_db_invert)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 0.5)
+# dev.off()
+```
+
+```{r}
+# First, run the ANOVA to get the p-value
+anova_result <- anova.cca(rda_out_db_invert, permutations = 1000)
+p_value <- anova_result$`Pr(>F)`[1]  # Extract the overall p-value
+
+# Set up the plot with transparent background
+png("rda_out_db_invert.png", width = 9, height = 7, units = "in", res = 600, bg = "white")
+
+# Increase the base font size
+par(cex = 1.2)  # This will increase all text sizes by 20%
+
+# Create the plot without axis labels
+plot(rda_out_db_invert, type="n", scaling = 3, 
+     col.axis = "black", col.lab = "black", col.main = "black", col.sub = "black",
+     xlab = "", ylab = "")  # Suppress axis labels here
+
+# SITES
+points(rda_out_db_invert, display="sites", pch=21, scaling=3, cex=1.8, col="black",
+       bg=adjustcolor(cols_6pops[col_dframe$region], alpha.f = 0.7))  # sites with semi-transparent fill
+text(rda_out_db_invert, display="sites", scaling = 3, col="black", font=2, pos=4, cex = 1.2)
+
+# PREDICTORS
+text(rda_out_db_invert, display="bp", scaling=3, col="red1", cex=1.0, lwd=2)
+
+# OTHER LABELS
+#adj.R2 = round(RsquareAdj(rda_out_db_invert)$adj.r.squared, 3)
+#p_value_formatted = format.pval(p_value, digits = 3)
+#mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)~";"~"p"~"="~.(p_value_formatted)), 
+      #side = 3, adj = 0.5, col = "black", cex = 1.2)
+
+# Add axis labels in black with larger font (only once)
+title(xlab = "RDA1 (92.4%)", ylab = "RDA2 (7.6%)", col.lab = "black", cex.lab = 1.4)
+
+# Increase axis text size
+par(cex.axis = 1.2)
+
+# Add a white box around the plot
+box(col = "black")
+
+dev.off()
+```
+
+### Partial redundancy analysis - controlling for geographic location
+
+```{r}
+# Perform RDA while controlling for geographical location
+pRDA_out_db_invert = rda(allele_freqs_out_db_invert ~ PC2 + PC3 + Condition(MEM1 + MEM2),
+           data = env.full, scale = TRUE)
+pRDA_out_db_invert
+RsquareAdj(pRDA_out_db_invert) # adjusted Rsquared 
+vif.cca(pRDA_out_db_invert) # variance inflation factor (<10 OK)
+anova.cca(pRDA_out_db_invert, permutations = 1000) # db_invert model
+anova.cca(pRDA_out_db_invert, permutations = 1000, by = "margin") # per variable
+
+# Variance explained by each canonical axis
+summary(eigenvals(pRDA_out_db_invert, model = "constrained"))
+screeplot(pRDA_out_db_invert)
+```
+
+```{r}
+# Visualise results of pRDA
+#png("partial_rda_out_db_invert.png", width = 9, height = 7, units = "in", res = 600)
+plot(pRDA_out_db_invert, type="n", scaling = 3)
+#title("Seascape partial redundancy analysis")
+# SITES
+points(pRDA_out_db_invert, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(pRDA_out_db_invert, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(pRDA_out_db_invert, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(pRDA, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("topleft", legend=levels(col_dframe_out6$region), bty="n", col="black",
+       #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(pRDA_out_db_invert)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 0.5)
+#dev.off()
+```
+
+
+pcadapt outside inversions (db_noinvert) SNP set
+
+```{r}
+# Perform RDA with all significant variables
+rda_out_db_noinvert = rda(allele_freqs_out_db_noinvert ~ PC2 + PC3, data = env.full, scale = TRUE)
+rda_out_db_noinvert
+
+# Model summaries
+RsquareAdj(rda_out_db_noinvert) # adjusted Rsquared 
+vif.cca(rda_out_db_noinvert) # variance inflation factor (<10 OK)
+anova.cca(rda_out_db_noinvert, permutations = 1000) # db_noinvert model
+anova.cca(rda_out_db_noinvert, permutations = 1000, by="margin") # per variable 
+
+# Variance explained by each canonical axis
+summary(eigenvals(rda_out_db_noinvert, model = "constrained"))
+screeplot(rda_out_db_noinvert)
+```
+
+```{r}
+# Visualize results of RDA
+#png("rda_out_db_noinvert.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda_out_db_noinvert, type="n", scaling = 3)
+# SITES
+points(rda_out_db_noinvert, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(rda_out_db_noinvert, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda_out_db_noinvert, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda_out_db_noinvert, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda_out_db_noinvert)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 0.5)
+# dev.off()
+```
+
+```{r}
+# First, run the ANOVA to get the p-value
+anova_result <- anova.cca(rda_out_db_noinvert, permutations = 1000)
+p_value <- anova_result$`Pr(>F)`[1]  # Extract the overall p-value
+
+# Set up the plot with transparent background
+png("rda_out_db_noinvert.png", width = 9, height = 7, units = "in", res = 600, bg = "white")
+
+# Increase the base font size
+par(cex = 1.2)  # This will increase all text sizes by 20%
+
+# Create the plot without axis labels
+plot(rda_out_db_noinvert, type="n", scaling = 3, 
+     col.axis = "black", col.lab = "black", col.main = "black", col.sub = "black",
+     xlab = "", ylab = "")  # Suppress axis labels here
+
+# SITES
+points(rda_out_db_noinvert, display="sites", pch=21, scaling=3, cex=1.8, col="black",
+       bg=adjustcolor(cols_6pops[col_dframe$region], alpha.f = 0.7))  # sites with semi-transparent fill
+text(rda_out_db_noinvert, display="sites", scaling = 3, col="black", font=2, pos=4, cex = 1.2)
+
+# PREDICTORS
+text(rda_out_db_noinvert, display="bp", scaling=3, col="red1", cex=1.0, lwd=2)
+
+# OTHER LABELS
+#adj.R2 = round(RsquareAdj(rda_out_db_noinvert)$adj.r.squared, 3)
+#p_value_formatted = format.pval(p_value, digits = 3)
+#mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)~";"~"p"~"="~.(p_value_formatted)), 
+      #side = 3, adj = 0.5, col = "black", cex = 1.2)
+
+# Add axis labels in black with larger font (only once)
+title(xlab = "RDA1 (64.7%)", ylab = "RDA2 (35.3%)", col.lab = "black", cex.lab = 1.4)
+
+# Increase axis text size
+par(cex.axis = 1.2)
+
+# Add a white box around the plot
+box(col = "black")
+
+dev.off()
+```
+
+### Partial redundancy analysis - controlling for geographic location
+
+```{r}
+# Perform RDA while controlling for geographical location
+pRDA_out_db_noinvert = rda(allele_freqs_out_db_noinvert ~ PC2 + PC3 + Condition(MEM1 + MEM2),
+           data = env.full, scale = TRUE)
+pRDA_out_db_noinvert
+RsquareAdj(pRDA_out_db_noinvert) # adjusted Rsquared 
+vif.cca(pRDA_out_db_noinvert) # variance inflation factor (<10 OK)
+anova.cca(pRDA_out_db_noinvert, permutations = 1000) # db_noinvert model
+anova.cca(pRDA_out_db_noinvert, permutations = 1000, by = "margin") # per variable
+
+# Variance explained by each canonical axis
+summary(eigenvals(pRDA_out_db_noinvert, model = "constrained"))
+screeplot(pRDA_out_db_noinvert)
+```
+
+```{r}
+# Visualise results of pRDA
+#png("partial_rda_out_db_noinvert.png", width = 9, height = 7, units = "in", res = 600)
+plot(pRDA_out_db_noinvert, type="n", scaling = 3)
+#title("Seascape partial redundancy analysis")
+# SITES
+points(pRDA_out_db_noinvert, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(pRDA_out_db_noinvert, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(pRDA_out_db_noinvert, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(pRDA, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("topleft", legend=levels(col_dframe_out6$region), bty="n", col="black",
+       #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(pRDA_out_db_noinvert)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 0.5)
+#dev.off()
+```
+
+
+## Allele frequency heatmaps 
+
+Here, I want to identify SNPs that show distinct patterns of allele frequencies that may be driving the patterns in the RDA. I'm going to calculate allele frequencies for the db outliers inside the inversions and outside the inversions that had the highest loadings on the RDA axes. I'll check for RDA1 and RDA2. My hope is that this will reveal significant loci which I can then link to specific genes and protein functions the SNPs fall within. 
+
+```{r}
+#install.packages("remotes")
+#remotes::install_github("chollenbeck/pantomime")
+```
+
+```{r}
+library(pantomime)
+```
+
+RDA1 
+
+```{r}
+contributions_db_invert <- (scores(rda_out_db_invert, display = "species", scaling = 2)^2)
+
+# Calculate percentage contributions
+perc_contributions_db_invert <- (contributions_db_invert / rowSums(contributions_db_invert) * 100)
+
+# Ranking them by their percent contributions 
+perc_contributions_db_invert_df <- as.data.frame(perc_contributions_db_invert) %>%
+  arrange(desc(RDA1))
+
+# Option 1: Top 10%
+top10_cutoff_db_invert <- quantile(perc_contributions_db_invert[,1], 0.9)
+
+# Option 2: Above average
+avg_cutoff_db_invert <- mean(perc_contributions_db_invert[,1])
+
+high_contrib_vars_top10_db_invert <- which(perc_contributions_db_invert[,1] > top10_cutoff_db_invert)
+
+high_contrib_vars_avg_db_invert <- which(perc_contributions_db_invert[,1] > avg_cutoff_db_invert)
+
+# Plot contributions for the first axis
+barplot(sort(perc_contributions_db_invert[,1], decreasing = TRUE), 
+        main = "Variable Contributions to RDA1",
+        ylab = "Percentage Contribution")
+```
+
+```{r}
+# Identify SNPs with significant loadings for RDA1
+rda_loadings_out_db_invert_rda1 <- loadings_out_db_invert %>%
+  as_tibble(rownames = "allele") %>%
+  extract(allele, c("locus","chrom", "pos", "allele"), "(NC_(\\d+)_1_(\\d+)).(\\d)") %>%
+  mutate(pos = as.integer(pos)) %>%
+  dplyr::select(locus,chrom, pos, allele, RDA1, RDA2) %>%
+  mutate(RDA1 = RDA1^2, RDA2 = RDA2^2) %>%
+  arrange(desc(RDA1))
+
+db_invert_pos_values_rda <- c("63925159","65249871","65249956","65249962","65267956","65410348","69663441","69663980","73286223","73479264","78251922","31392783","31899147","32464100","32511570","34965793","34965894","36419831","41726211","41726273","42741412","42884268","42885299")
+
+top_loadings_out_db_invert_rda1 <- rda_loadings_out_db_invert_rda1[rda_loadings_out_db_invert_rda1$pos %in% db_invert_pos_values_rda, ]
+
+top_loadings_out_db_invert_rda1 %>%
+  arrange(desc(RDA1))
+
+rad_out_db_invert.filt %>%
+  pantomime::get_allele_freqs()
+
+rad_out_db_invert.filt %>%
+  pantomime::get_allele_freqs() %>%
+  filter(allele == 0, locus %in% top_loadings_out_db_invert_rda1$locus) %>%
+  extract(locus, c("chrom", "pos"), "NC_(\\d+)_1_(\\d+)", remove = FALSE) %>%
+  mutate(pos = as.integer(pos)) %>%
+  mutate(pop = factor(pop, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  mutate(chrom_pos = paste("NC", chrom, "_", pos)) %>%  # Create a new column for facet labels
+  ggplot(aes(x = pop, y = freq, fill = pop)) +
+    geom_col() +
+    scale_fill_manual(values = cols_6pops) +
+    facet_wrap(~chrom_pos, scales = "free_y") +  # Use chrom_pos for faceting
+    theme_minimal() +
+    theme(
+      strip.text = element_text(size = 8),  # Adjust the size of the facet labels
+      axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+      legend.position = "none"  # Remove legend if not needed
+    ) +
+    labs(x = "Population", y = "Allele Frequency")
+```
+
+RDA2
+
+```{r}
+# Identify SNPs with significant loadings for RDA2
+rda_loadings_out_db_invert_rda2 <- loadings_out_db_invert %>%
+  as_tibble(rownames = "allele") %>%
+  extract(allele, c("locus","chrom", "pos", "allele"), "(NC_(\\d+)_1_(\\d+)).(\\d)") %>%
+  mutate(pos = as.integer(pos)) %>%
+  select(locus,chrom, pos, allele, RDA1, RDA2) %>%
+  mutate(RDA1 = RDA1^2, RDA2 = RDA2^2) %>%
+  arrange(desc(RDA2))
+
+top_loadings_out_db_invert_rda2 <- rda_loadings_out_db_invert_rda2 %>%
+  top_n(10, RDA2)
+
+rad_out_db_invert.filt %>%
+  pantomime::get_allele_freqs()
+
+rad_out_db_invert.filt %>%
+  pantomime::get_allele_freqs() %>%
+  filter(allele == 0, locus %in% top_loadings_out_db_invert_rda2$locus) %>%
+  extract(locus, c("chrom", "pos"), "NC_(\\d+)_1_(\\d+)", remove = FALSE) %>%
+  mutate(pos = as.integer(pos)) %>%
+  mutate(pop = factor(pop, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  ggplot(aes(x = pop, y = freq, fill = pop)) +
+    geom_col() +
+    scale_fill_manual(values = cols_6pops) +
+    facet_wrap(~locus)
+```
+
+```{r}
+ggplot(rda_loadings_out_db_invert, aes(x = pos, y = RDA1)) +
+  geom_point() +
+  facet_wrap(~chrom) +
+  theme_minimal() +
+  scale_color_manual()
+```
+
+```{r}
+ggplot(rda_loadings_out_db_invert, aes(x = pos, y = RDA2)) +
+  geom_point() +
+  facet_wrap(~chrom) +
+  theme_minimal() +
+  scale_color_manual()
+```
+
+pcadapt outliers outside inversions set
+
+```{r}
+# Save loadings from RDA
+loadings_out_db_noinvert <- scores(rda_out_db_noinvert, display = "species", scaling = 0)
+```
+
+
+SNPs outside inversions
+
+pcadapt outliers inside inversions set
+
+RDA1
+
+```{r}
+contributions_db_noinvert <- (scores(rda_out_db_noinvert, display = "species", scaling = 2)^2)
+
+# Calculate percentage contributions
+perc_contributions_db_noinvert <- (contributions_db_noinvert / rowSums(contributions_db_noinvert) * 100)
+
+# Ranking them by their percent contributions 
+perc_contributions_db_noinvert_df <- as.data.frame(perc_contributions_db_noinvert) %>%
+  arrange(desc(RDA1))
+
+# Option 1: Top 10%
+top10_cutoff_db_noinvert <- quantile(perc_contributions_db_noinvert[,1], 0.9)
+
+# Option 2: Above average
+avg_cutoff_db_noinvert <- mean(perc_contributions_db_noinvert[,1])
+
+high_contrib_vars_top10_db_noinvert <- which(perc_contributions_db_noinvert[,1] > top10_cutoff_db_noinvert)
+
+high_contrib_vars_avg_db_noinvert <- which(perc_contributions_db_noinvert[,1] > avg_cutoff_db_noinvert)
+
+# Plot contributions for the first axis
+barplot(sort(perc_contributions_db_noinvert[,1], decreasing = TRUE), 
+        main = "Variable Contributions to RDA1",
+        ylab = "Percentage Contribution")
+```
+
+```{r}
+# Identify SNPs with significant loadings for RDA1
+rda_loadings_out_db_noinvert_rda1 <- loadings_out_db_noinvert %>%
+  as_tibble(rownames = "allele") %>%
+  extract(allele, c("locus","chrom", "pos", "allele"), "(NC_(\\d+)_1_(\\d+)).(\\d)") %>%
+  mutate(pos = as.integer(pos)) %>%
+  dplyr::select(locus,chrom, pos, allele, RDA1, RDA2) %>%
+  mutate(RDA1 = RDA1^2, RDA2 = RDA2^2) %>%
+  arrange(desc(RDA1))
+
+db_noinvert_pos_values_rda <- c("8465456","8465500","8465519","8466007","8748233","13250687","29901078","40734412","42946753","23152223","39585945")
+
+top_loadings_out_db_noinvert_rda1 <- rda_loadings_out_db_noinvert_rda1[rda_loadings_out_db_noinvert_rda1$pos %in% db_noinvert_pos_values_rda, ]
+
+top_loadings_out_db_noinvert_rda1 %>%
+  arrange(desc(RDA1))
+
+rad_out_db_noinvert.filt %>%
+  pantomime::get_allele_freqs()
+
+rad_out_db_noinvert.filt %>%
+  pantomime::get_allele_freqs() %>%
+  filter(allele == 0, locus %in% top_loadings_out_db_noinvert_rda1$locus) %>%
+  extract(locus, c("chrom", "pos"), "NC_(\\d+)_1_(\\d+)", remove = FALSE) %>%
+  mutate(pos = as.integer(pos)) %>%
+  mutate(pop = factor(pop, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  mutate(chrom_pos = paste("NC", chrom, "_", pos)) %>%  # Create a new column for facet labels
+  ggplot(aes(x = pop, y = freq, fill = pop)) +
+    geom_col() +
+    scale_fill_manual(values = cols_6pops) +
+    facet_wrap(~chrom_pos, scales = "free_y") +  # Use chrom_pos for faceting
+    theme_minimal() +
+    theme(
+      strip.text = element_text(size = 8),  # Adjust the size of the facet labels
+      axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+      legend.position = "none"  # Remove legend if not needed
+    ) +
+    labs(x = "Population", y = "Allele Frequency")
+```
+
+RDA2
+
+```{r}
+# Identify SNPs with significant loadings for RDA2
+rda_loadings_out_db_noinvert_rda2 <- loadings_out_db_noinvert %>%
+  as_tibble(rownames = "allele") %>%
+  extract(allele, c("locus","chrom", "pos", "allele"), "(NC_(\\d+)_1_(\\d+)).(\\d)") %>%
+  mutate(pos = as.integer(pos)) %>%
+  select(locus,chrom, pos, allele, RDA1, RDA2) %>%
+  mutate(RDA1 = RDA1^2, RDA2 = RDA2^2) %>%
+  arrange(desc(RDA2))
+
+top_loadings_out_db_noinvert_rda2 <- rda_loadings_out_db_noinvert_rda2 %>%
+  top_n(9, RDA2)
+
+rad_out_db_noinvert.filt %>%
+  pantomime::get_allele_freqs()
+
+rad_out_db_noinvert.filt %>%
+  pantomime::get_allele_freqs() %>%
+  filter(allele == 0, locus %in% top_loadings_out_db_noinvert_rda2$locus) %>%
+  extract(locus, c("chrom", "pos"), "NC_(\\d+)_1_(\\d+)", remove = FALSE) %>%
+  mutate(pos = as.integer(pos)) %>%
+  mutate(pop = factor(pop, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  ggplot(aes(x = pop, y = freq, fill = pop)) +
+    geom_col() +
+    scale_fill_manual(values = cols_6pops) +
+    facet_wrap(~locus)
+```
+
+```{r}
+ggplot(rda_loadings_out_db_noinvert, aes(x = pos, y = RDA1)) +
+  geom_point() +
+  facet_wrap(~chrom) +
+  theme_minimal() +
+  scale_color_manual()
+```
+
+```{r}
+ggplot(rda_loadings_out_db_noinvert, aes(x = pos, y = RDA2)) +
+  geom_point() +
+  facet_wrap(~chrom) +
+  theme_minimal() +
+  scale_color_manual()
+```
+
+## Correspondence analysis-based RDA
+
+Outlier SNPs inside inversions
+
+```{r}
+# Run a CA on the genind object
+obj_out_db_invert <- genind2genpop(rad_out_db_invert.filt)
+ca1_out_db_invert <- dudi.coa(tab(obj_out_db_invert), scannf=FALSE, nf=10)
+eig_ca1_out_db_invert <- round((ca1_out_db_invert$eig / (sum(ca1_out_db_invert$eig))) * 100, 2)
+out_ca_out_db_invert <- ca1_out_db_invert$li[,1:2]
+rownames(out_ca_out_db_invert) <- popNames(rad_out_db_invert.filt)
+```
+
+```{r}
+out_ca_out_db_invert <- out_ca_out_db_invert %>%
+  rownames_to_column(var = "Population") %>%
+  mutate(Population = factor(Population, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  select(Population, Axis1, Axis2)
+```
+
+```{r}
+strata_ca_out_db_invert <- strata_6pops %>%
+  left_join(out_ca_out_db_invert, by = "Population")
+```
+
+```{r}
+# Plot the CA
+ggplot(strata_ca_out_db_invert, aes(x = Axis1, y = Axis2, colour = Population)) +
+  geom_point(size = 6, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops,
+                      name = "") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14)) +
+  labs(x = paste("", "Axis 1: ", eig_ca1_out_db_invert[1], "%"), y = paste("", "Axis 2: ", eig_ca1_out_db_invert[2], "%"))
+```
+
+```{r}
+# Plot CA1 versus PC2 
+strata_ca_out_db_invert %>%
+  ggplot(aes(x = Axis1, y = PC2)) +
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 4) +
+  scale_color_manual(values = cols_6pops) +
+  theme_minimal() +
+  labs(
+       x = "CA1",
+       y = "PC2")
+```
+
+```{r}
+# Linear model for CA1 versus PC2
+pc2_mod_out_db_invert <- lm(Axis1 ~ PC3, data = strata_ca_out_db_invert)
+summary(pc2_mod_out_db_invert)
+```
+
+```{r}
+ca_loadings_out_db_invert_ca1 <- ca1_out_db_invert$co %>%
+  as_tibble(rownames = "allele") %>%
+  extract(allele, c("locus","chrom", "pos", "allele"), "(NC_(\\d+)_1_(\\d+)).(\\d)") %>%
+  mutate(pos = as.integer(pos)) %>%
+  dplyr::select(locus, chrom, pos, allele, Comp1, Comp2) %>%
+  mutate(Comp1 = Comp1^2, Comp2 = Comp2^2) %>%
+  arrange(desc(Comp1))
+
+db_invert_pos_values <- c("63925159","69663441","69663980","32673372","34965793","41726211","41726273", "65694744","65267956","34965894","31899147","42741412","65267874","66635829","73286223", "36420436","78393626","78393650","65267667")
+
+top_loadings_out_db_invert_ca1 <- ca_loadings_out_db_invert_ca1[ca_loadings_out_db_invert_ca1$pos %in% db_invert_pos_values, ]
+
+rad_out_db_invert.filt %>%
+  pantomime::get_allele_freqs() %>%
+  filter(allele == 0, locus %in% top_loadings_out_db_invert_ca1$locus) %>%
+  extract(locus, c("chrom", "pos"), "NC_(\\d+)_1_(\\d+)", remove = FALSE) %>%
+  mutate(pos = as.integer(pos)) %>%
+  mutate(pop = factor(pop, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  mutate(chrom_pos = paste("NC", chrom, "_", pos)) %>%  # Create a new column for facet labels
+  ggplot(aes(x = pop, y = freq, fill = pop)) +
+    geom_col() +
+    scale_fill_manual(values = cols_6pops) +
+    facet_wrap(~chrom_pos, scales = "free_y") +  # Use chrom_pos for faceting
+    theme_minimal() +
+    theme(
+      strip.text = element_text(size = 8),  # Adjust the size of the facet labels
+      axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+      legend.position = "none"  # Remove legend if not needed
+    ) +
+    labs(x = "Population", y = "Allele Frequency")
+```
+
+
+Outlier SNPs outside inversions
+
+```{r}
+# Run a CA on the genind object
+obj_out_db_noinvert <- genind2genpop(rad_out_db_noinvert.filt)
+ca1_out_db_noinvert <- dudi.coa(tab(obj_out_db_noinvert), scannf=FALSE, nf=10)
+eig_ca1_out_db_noinvert <- round((ca1_out_db_noinvert$eig / (sum(ca1_out_db_noinvert$eig))) * 100, 2)
+out_ca_out_db_noinvert <- ca1_out_db_noinvert$li[,1:2]
+rownames(out_ca_out_db_noinvert) <- popNames(rad_out_db_noinvert.filt)
+```
+
+```{r}
+out_ca_out_db_noinvert <- out_ca_out_db_noinvert %>%
+  rownames_to_column(var = "Population") %>%
+  mutate(Population = factor(Population, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  select(Population, Axis1, Axis2)
+```
+
+```{r}
+strata_ca_out_db_noinvert <- strata_6pops %>%
+  left_join(out_ca_out_db_noinvert, by = "Population")
+```
+
+```{r}
+# Plot the CA
+ggplot(strata_ca_out_db_noinvert, aes(x = Axis1, y = Axis2, colour = Population)) +
+  geom_point(size = 6, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops,
+                      name = "") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14)) +
+  labs(x = paste("", "Axis 1: ", eig_ca1_out_db_noinvert[1], "%"), y = paste("", "Axis 2: ", eig_ca1_out_db_noinvert[2], "%"))
+```
+
+```{r}
+# Plot CA1 versus PC3 
+strata_ca_out_db_noinvert %>%
+  ggplot(aes(x = Axis1, y = PC2)) +
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 4) +
+  scale_color_manual(values = cols_6pops) +
+  theme_minimal() +
+  labs(
+       x = "CA1",
+       y = "PC2")
+```
+
+```{r}
+# Linear model for CA1 versus PC2
+pc3_mod_out_db_noinvert <- lm(Axis1 ~ PC3, data = strata_ca_out_db_noinvert)
+summary(pc3_mod_out_db_noinvert)
+```
+
+```{r}
+# Identify SNPs with significant loadings for CA1
+ca_loadings_out_db_noinvert_ca1 <- ca1_out_db_noinvert$co %>%
+  as_tibble(rownames = "allele") %>%
+  extract(allele, c("locus","chrom", "pos", "allele"), "(NC_(\\d+)_1_(\\d+)).(\\d)") %>%
+  mutate(pos = as.integer(pos)) %>%
+  dplyr::select(locus, chrom, pos, allele, Comp1, Comp2) %>%
+  mutate(Comp1 = Comp1^2, Comp2 = Comp2^2) %>%
+  arrange(desc(Comp1))
+
+db_noinvert_pos_values <- c("29902142","8748233","1884313","42946753","47484403","49770765","39585945","8466007","40734412")
+
+top_loadings_out_db_noinvert_ca1 <- ca_loadings_out_db_noinvert_ca1[ca_loadings_out_db_noinvert_ca1$pos %in% db_noinvert_pos_values, ]
+
+rad_out_db_noinvert.filt %>%
+  pantomime::get_allele_freqs()
+
+rad_out_db_noinvert.filt %>%
+  pantomime::get_allele_freqs() %>%
+  filter(allele == 0, locus %in% top_loadings_out_db_noinvert_ca1$locus) %>%
+  extract(locus, c("chrom", "pos"), "NC_(\\d+)_1_(\\d+)", remove = FALSE) %>%
+  mutate(pos = as.integer(pos)) %>%
+  mutate(pop = factor(pop, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  mutate(chrom_pos = paste("NC", chrom, "_", pos)) %>%  # Create a new column for facet labels
+  ggplot(aes(x = pop, y = freq, fill = pop)) +
+    geom_col() +
+    scale_fill_manual(values = cols_6pops) +
+    facet_wrap(~chrom_pos, scales = "free_y") +  # Use chrom_pos for faceting
+    theme_minimal() +
+    theme(
+      strip.text = element_text(size = 8),  # Adjust the size of the facet labels
+      axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+      legend.position = "none"  # Remove legend if not needed
+    ) +
+    labs(x = "Population", y = "Allele Frequency")
+```
+
+Correspondence analysis and allele frequencies plot for LFMM outliers 
+
+```{r}
+# Run a CA on the genind object
+obj_out_lfmm <- genind2genpop(rad_out_lfmm.filt)
+ca1_out_lfmm <- dudi.coa(tab(obj_out_lfmm), scannf=FALSE, nf=10)
+eig_ca1_out_lfmm <- round((ca1_out_lfmm$eig / (sum(ca1_out_lfmm$eig))) * 100, 2)
+out_ca_out_lfmm <- ca1_out_lfmm$li[,1:2]
+rownames(out_ca_out_lfmm) <- popNames(rad_out_lfmm.filt)
+```
+
+```{r}
+out_ca_out_lfmm <- out_ca_out_lfmm %>%
+  rownames_to_column(var = "Population") %>%
+  mutate(Population = factor(Population, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  dplyr::select(Population, Axis1, Axis2)
+```
+
+```{r}
+strata_ca_out_lfmm <- strata_6pops %>%
+  left_join(out_ca_out_lfmm, by = "Population")
+```
+
+```{r}
+# Identify SNPs with significant loadings for CA1
+ca_loadings_out_lfmm_ca1 <- ca1_out_lfmm$co %>%
+  as_tibble(rownames = "allele") %>%
+  extract(allele, c("locus","chrom", "pos", "allele"), "(NC_(\\d+)_1_(\\d+)).(\\d)") %>%
+  mutate(pos = as.integer(pos)) %>%
+  dplyr::select(locus, chrom, pos, allele, Comp1, Comp2) %>%
+  mutate(Comp1 = Comp1^2, Comp2 = Comp2^2) %>%
+  arrange(desc(Comp1))
+
+lfmm_pos_values <- c("34532963","8396484","8396493","24512990","49023293","42294461","15925374","79541695")
+
+top_loadings_out_lfmm_ca1 <- ca_loadings_out_lfmm_ca1[ca_loadings_out_lfmm_ca1$pos %in% lfmm_pos_values, ]
+
+rad_out_lfmm.filt %>%
+  pantomime::get_allele_freqs() %>%
+  filter(allele == 0, locus %in% top_loadings_out_lfmm_ca1$locus) %>%
+  extract(locus, c("chrom", "pos"), "NC_(\\d+)_1_(\\d+)", remove = FALSE) %>%
+  mutate(pos = as.integer(pos)) %>%
+  mutate(pop = factor(pop, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  mutate(chrom_pos = paste("NC", chrom, "_", pos)) %>%  # Create a new column for facet labels
+  ggplot(aes(x = pop, y = freq, fill = pop)) +
+    geom_col() +
+    scale_fill_manual(values = cols_6pops) +
+    facet_wrap(~chrom_pos, scales = "free_y") +  # Use chrom_pos for faceting
+    theme_minimal() +
+    theme(
+      strip.text = element_text(size = 8),  # Adjust the size of the facet labels
+      axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+      legend.position = "none"  # Remove legend if not needed
+    ) +
+    labs(x = "Population", y = "Allele Frequency")
+```
+
+
+```{r}
+rad_out_lfmm.filt %>%
+  pantomime::get_allele_freqs() %>%
+  filter(allele == 0, locus %in% rad_out_lfmm.filt$loc.fac) %>%
+  extract(locus, c("chrom", "pos"), "NC_(\\d+)_1_(\\d+)", remove = FALSE) %>%
+  mutate(pos = as.integer(pos)) %>%
+  mutate(pop = factor(pop, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  mutate(chrom_pos = paste("NC", chrom, "_", pos)) %>%  # Create a new column for facet labels
+  ggplot(aes(x = pop, y = freq, fill = pop)) +
+    geom_col() +
+    scale_fill_manual(values = cols_6pops) +
+    facet_wrap(~chrom_pos, scales = "free_y") +  # Use chrom_pos for faceting
+    theme_minimal() +
+    theme(
+      strip.text = element_text(size = 8),  # Adjust the size of the facet labels
+      axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+      legend.position = "none"  # Remove legend if not needed
+    ) +
+    labs(x = "Population", y = "Allele Frequency")
+```
+
+
+Full final set of outliers (390)
+
+```{r}
+# Run a CA on the genind object
+obj_out_full_final <- genind2genpop(rad_out_full_final.filt)
+ca1_out_full_final <- dudi.coa(tab(obj_out_full_final), scannf=FALSE, nf=10)
+eig_ca1_out_full_final <- round((ca1_out_full_final$eig / (sum(ca1_out_full_final$eig))) * 100, 2)
+out_ca_out_full_final <- ca1_out_full_final$li[,1:2]
+rownames(out_ca_out_full_final) <- popNames(rad_out_full_final.filt)
+```
+
+```{r}
+out_ca_out_full_final <- out_ca_out_full_final %>%
+  rownames_to_column(var = "Population") %>%
+  mutate(Population = factor(Population, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  dplyr::select(Population, Axis1, Axis2)
+```
+
+```{r}
+strata_ca_out_full_final <- strata_6pops %>%
+  left_join(out_ca_out_full_final, by = "Population")
+```
+
+```{r}
+# Plot the CA
+ggplot(strata_ca_out_full_final, aes(x = Axis1, y = Axis2, colour = Population)) +
+  geom_point(size = 6, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops,
+                      name = "") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14)) +
+  labs(x = paste("", "Axis 1: ", eig_ca1_out_full_final[1], "%"), y = paste("", "Axis 2: ", eig_ca1_out_full_final[2], "%"))
+```
+
+```{r}
+# Plot CA1 versus June Salinity Min
+strata_ca_out_full_final %>%
+  ggplot(aes(x = Axis1, y = June_Salinity_Min)) +
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 4) +
+  scale_color_manual(values = cols_6pops) +
+  theme_minimal() +
+  labs(
+       x = "Axis1",
+       y = "Minimum Salinity")
+```
+
+```{r}
+# Linear model for CA1 versus PC2
+sal_min_mod_out_full_final <- lm(Axis1 ~ June_Salinity_Min, data = strata_ca_out_full_final)
+summary(sal_min_mod_out_full_final)
+```
+
+
+## RDAForest
+
+```{r}
+#install.packages("gradientForest", repos="http://R-Forge.R-project.org")
+#install.packages("clv")
+#install.packages("sp")
+#install.packages("/home/azyck/NB_capture_both/NB_ddhaplo/NB_ddhaplo_working/NB_PopSeaGen_Analysis_working/RDA-forest/RDAforest_2.5.1.tar.gz")
+#install.packages("rnaturalearth")
+```
+
+```{r}
+library(RDAforest)
+library(gradientForest)
+library(mapdata)
+library(poppr)
+```
+
+### Data exploration
+
+Check for missing data.
+
+```{r}
+sum(is.na(rad_out_db.filt$tab))
+```
+
+RDAforest doesn't handle missing data, so I'm going to impute missing data using mean allele frequencies
+
+```{r}
+gen_out_db.imp <- apply(rad_out_db.filt$tab, 2, function(x) replace(x, is.na(x), as.numeric(names(which.max(table(x))))))
+sum(is.na(gen_out_db.imp)) # No NAs
+```
+
+Let’s compute genetic distances based on genotypic correlation, and make an unconstrained ordination:
+```{r}
+# distances:
+cordist_out_db=1-cor(t(gen_out_db.imp))
+# ordination:
+ord_out_db=capscale(cordist_out_db~1)
+```
+
+```{r}
+# Creating a population vector that I can add back in 
+pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10))
+```
+
+
+Proportion of variance explained by PCs (“MDS” is the mathematically identical to principal components so we will call them PCs):
+
+```{r}
+plot(ord_out_db$CA$eig/sum(ord_out_db$CA$eig),xlab="PC",ylab="proportion of variance explained")
+```
+
+Probably 2 leading principal components.
+Extracting scores, plotting ordination:
+
+```{r}
+so_out_db=data.frame(scores(ord_out_db,scaling=1,display="sites"))
+ggplot(so_out_db,aes(MDS1,MDS2,color=pop))+geom_point()+coord_equal()+theme_bw()
+```
+
+### Exploring Isolation By Distance (IBD)
+
+```{r}
+# converting lat, lon to great circle distances
+GCD=gcd.dist(strata6[,3:4])
+latlon.gcd=GCD[[1]]
+distGCD=GCD[[2]]
+
+plot(as.dist(cordist_out_db)~distGCD,pch=16,cex=0.6,col=rgb(0,0,0,alpha=0.2))
+```
+
+```{r}
+protest(capscale(distGCD~1),capscale(cordist_out_db~1))
+```
+
+Not a strong correlation, so I don't need to worry about regressing the geographic information out of the genetic data.
+
+### Exploratory RDA-forest analysis
+
+We will use all predictors and more leading PCs (25, specified by the option pcs2keep=c(1:25)) that we will likely need, just to see how it looks. 
+
+```{r}
+env <- strata6_full[,5:44]
+env <- as.matrix(env)
+rownames(env) <- strata6_full$Individuals
+```
+
+```{r}
+gf_out_db=makeGF(ord_out_db,env,pcs2keep=NULL)
+```
+
+
+
+
+## Functional annotation of outlier SNPs 
+
+First checking for outlier SNPs that are exons and inside genes. Bed files containing locations of exons, genes, and coding sequences were created from a .gaf file for the eastern oyster. 
+
+I'm going to use vcftools to parse out the outlier SNPs that are in exon, gene, and coding sequence regions. 
+
+Full set of outlier SNPs 
+
+58 SNPs in exon regions, 68 SNPs in gene regions, 30 SNPs in coding sequences 
+
+```
+# VCF file containing all exon regions
+$ vcftools --vcf outlierloci6p9g9_red.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.exon.sc.bed --out outlier_full_exon
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 337295 BED file entries.
+After filtering, kept 58 out of a possible 70 Sites
+Run Time = 0.00 seconds
+```
+
+```
+# VCF file containing all gene regions
+$ vcftools --vcf outlierloci6p9g9_red.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.gene.sc.bed --out outlier_full_gene
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 35016 BED file entries.
+After filtering, kept 68 out of a possible 70 Sites
+Run Time = 0.00 seconds
+```
+
+```
+# VCF file containing all coding sequences 
+$ vcftools --vcf outlierloci6p9g9_red.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.CDS.sc.bed --out outlier_full_CDS
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 295525 BED file entries.
+After filtering, kept 30 out of a possible 70 Sites
+Run Time = 0.00 seconds
+```
+
+Identified chromosome and position info for the SNPs in genes.
+
+```
+# full outliers in genes
+# Convert SNP indices to locus position and chromosome info
+$ mawk '!/#/' outlier_full_gene.recode.vcf | cut -f1,2 > outlier_full_gene_loci
+$ NUM=(`cat outlier_full_gene_loci | wc -l`)
+$ paste <(seq 1 $NUM) outlier_full_gene_loci > loci_outlier_full_gene.plus.index 
+```
+
+```
+$ head loci_outlier_full_gene.plus.index
+
+output:
+1	NC_035789.1	8465456
+2	NC_035789.1	8465500
+3	NC_035789.1	8465519
+4	NC_035789.1	8466007
+5	NC_035780.1	8748233
+6	NC_035780.1	13250687
+7	NC_035780.1	24512990
+8	NC_035780.1	29901078
+9	NC_035780.1	29902142
+10	NC_035780.1	63719373
+```
+
+From this list, I made a full dataset of the gene IDs and proteins. I also marked which SNPs were in exons and coding sequences. 
+
+```
+# full outliers in CDS
+# Convert SNP indices to locus position and chromosome info
+$ mawk '!/#/' outlier_full_CDS.recode.vcf | cut -f1,2 > outlier_full_CDS_loci
+$ NUM=(`cat outlier_full_CDS_loci | wc -l`)
+$ paste <(seq 1 $NUM) outlier_full_CDS_loci > loci_outlier_full_CDS.plus.index 
+```
+
+Updated full set of outliers (361)
+
+282 SNPs in exon regions, 342 SNPs in gene regions, 186 SNPs in coding sequences 
+
+```
+# VCF file containing all exon regions
+$ vcftools --vcf outlierloci_new.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.exon.sc.bed --out outlier_full_new_exon
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 337295 BED file entries.
+After filtering, kept 282 out of a possible 361 Sites
+Run Time = 0.00 seconds
+```
+
+```
+# VCF file containing all gene regions
+$ vcftools --vcf outlierloci_new.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.gene.sc.bed --out outlier_full_new_gene
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 35016 BED file entries.
+After filtering, kept 342 out of a possible 361 Sites
+Run Time = 0.00 seconds
+```
+
+```
+# VCF file containing all coding sequences 
+$ vcftools --vcf outlierloci_new.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.CDS.sc.bed --out outlier_full_new_CDS
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 295525 BED file entries.
+After filtering, kept 186 out of a possible 361 Sites
+Run Time = 1.00 seconds
+```
+
+pcadapt outlier SNPs 
+
+50 SNPs in exon regions, 56 SNPs in gene regions, 25 SNPs in coding sequences 
+
+```
+# VCF file containing all exon regions
+$ vcftools --vcf outlierloci6p9g9_db.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.exon.sc.bed --out outlier_db_exon
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 337295 BED file entries.
+After filtering, kept 50 out of a possible 58 Sites
+Run Time = 0.00 seconds
+```
+
+```
+# VCF file containing all gene regions
+$ vcftools --vcf outlierloci6p9g9_db.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.gene.sc.bed --out outlier_db_gene
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 35016 BED file entries.
+After filtering, kept 56 out of a possible 58 Sites
+Run Time = 0.00 seconds
+```
+
+```
+# VCF file containing all coding sequences 
+$ vcftools --vcf outlierloci6p9g9_db.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.CDS.sc.bed --out outlier_db_CDS
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 295525 BED file entries.
+After filtering, kept 25 out of a possible 58 Sites
+Run Time = 0.00 seconds
+```
+
+pcadapt outlier SNPs inside inversions 
+
+31 SNPs in exon regions, 35 SNPs in gene regions, 8 SNPs in coding sequences 
+
+```
+# VCF file containing all exon regions
+$ vcftools --vcf outliers6p9g9_db_invert.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.exon.sc.bed --out outlier_db_invert_exon
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 337295 BED file entries.
+After filtering, kept 31 out of a possible 36 Sites
+Run Time = 0.00 seconds
+```
+
+```
+# VCF file containing all gene regions
+$ vcftools --vcf outliers6p9g9_db_invert.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.gene.sc.bed --out outlier_db_invert_gene
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 35016 BED file entries.
+After filtering, kept 35 out of a possible 36 Sites
+Run Time = 0.00 seconds
+```
+
+```
+# VCF file containing all coding sequences 
+$ vcftools --vcf outliers6p9g9_db_invert.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.CDS.sc.bed --out outlier_db_invert_CDS
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 295525 BED file entries.
+After filtering, kept 8 out of a possible 36 Sites
+Run Time = 0.00 seconds
+```
+
+pcadapt outlier SNPs outside inversions 
+
+19 SNPs in exon regions, 21 SNPs in gene regions, 17 SNPs in coding sequences 
+
+```
+# VCF file containing all exon regions
+$ vcftools --vcf outliers6p9g9_db_noinvert.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.exon.sc.bed --out outlier_db_noinvert_exon
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 337295 BED file entries.
+After filtering, kept 19 out of a possible 22 Sites
+Run Time = 0.00 seconds
+```
+
+```
+# VCF file containing all gene regions
+$ vcftools --vcf outliers6p9g9_db_noinvert.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.gene.sc.bed --out outlier_db_noinvert_gene
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 35016 BED file entries.
+After filtering, kept 21 out of a possible 22 Sites
+Run Time = 0.00 seconds
+```
+
+```
+# VCF file containing all coding sequences 
+$ vcftools --vcf outliers6p9g9_db_noinvert.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.CDS.sc.bed --out outlier_db_noinvert_CDS
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 295525 BED file entries.
+After filtering, kept 17 out of a possible 22 Sites
+Run Time = 0.00 seconds
+```
+
+
+LFMM outlier SNPs 
+
+10 SNPs in exon regions, 14 SNPs in gene regions, 5 SNPs in coding sequences 
+
+```
+# VCF file containing all exon regions
+$ vcftools --vcf outlierloci6p9g9_lfmm.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.exon.sc.bed --out outlier_lfmm_exon
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 337295 BED file entries.
+After filtering, kept 10 out of a possible 14 Sites
+Run Time = 0.00 seconds
+```
+
+```
+# VCF file containing all gene regions
+$ vcftools --vcf outlierloci6p9g9_lfmm.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.gene.sc.bed --out outlier_lfmm_gene
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 35016 BED file entries.
+After filtering, kept 14 out of a possible 14 Sites
+Run Time = 0.00 seconds
+```
+
+```
+# VCF file containing all coding sequences 
+$ vcftools --vcf outlierloci6p9g9_lfmm.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.CDS.sc.bed --out outlier_lfmm_CDS
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 295525 BED file entries.
+After filtering, kept 5 out of a possible 14 Sites
+Run Time = 0.00 seconds
+```
+
+
+LFMM outlier SNPs inside inversions 
+
+6 SNPs in exon regions, 6 SNPs in gene regions, 2 SNPs in coding sequences 
+
+```
+# VCF file containing all exon regions
+$ vcftools --vcf outliers6p9g9_lfmm_invert.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.exon.sc.bed --out outlier_lfmm_invert_exon
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 337295 BED file entries.
+After filtering, kept 6 out of a possible 6 Sites
+Run Time = 0.00 seconds
+```
+
+```
+# VCF file containing all gene regions
+$ vcftools --vcf outliers6p9g9_lfmm_invert.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.gene.sc.bed --out outlier_lfmm_invert_gene
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 35016 BED file entries.
+After filtering, kept 6 out of a possible 6 Sites
+Run Time = 0.00 seconds
+```
+
+```
+# VCF file containing all coding sequences 
+$ vcftools --vcf outliers6p9g9_lfmm_invert.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.CDS.sc.bed --out outlier_lfmm_invert_CDS
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 295525 BED file entries.
+After filtering, kept 2 out of a possible 6 Sites
+Run Time = 1.00 seconds
+```
+
+
+LFMM outlier SNPs outside inversions 
+
+4 SNPs in exon regions, 8 SNPs in gene regions, 3 SNPs in coding sequences 
+
+```
+# VCF file containing all exon regions
+$ vcftools --vcf outliers6p9g9_lfmm_noinvert.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.exon.sc.bed --out outlier_lfmm_noinvert_exon
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 337295 BED file entries.
+After filtering, kept 4 out of a possible 8 Sites
+Run Time = 0.00 seconds
+```
+
+```
+# VCF file containing all gene regions
+$ vcftools --vcf outliers6p9g9_lfmm_noinvert.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.gene.sc.bed --out outlier_lfmm_noinvert_gene
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 35016 BED file entries.
+After filtering, kept 8 out of a possible 8 Sites
+Run Time = 0.00 seconds
+```
+
+```
+# VCF file containing all coding sequences 
+$ vcftools --vcf outliers6p9g9_lfmm_noinvert.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.CDS.sc.bed --out outlier_lfmm_noinvert_CDS
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 295525 BED file entries.
+After filtering, kept 3 out of a possible 8 Sites
+Run Time = 0.00 seconds
+```
+
+RDA outliers (291)
+
+224 SNPs in exon regions, 274 SNPs in gene regions, 156 SNPs in coding sequences 
+
+```
+# VCF file containing all exon regions
+$ vcftools --vcf outliers_rda.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.exon.sc.bed --out outlier_rda_exon
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 337295 BED file entries.
+After filtering, kept 224 out of a possible 291 Sites
+Run Time = 0.00 seconds
+```
+
+```
+# VCF file containing all gene regions
+$ vcftools --vcf outliers_rda.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.gene.sc.bed --out outlier_rda_gene
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 35016 BED file entries.
+After filtering, kept 274 out of a possible 291 Sites
+Run Time = 0.00 seconds
+```
+
+```
+# VCF file containing all coding sequences 
+$ vcftools --vcf outliers_rda.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.CDS.sc.bed --out outlier_rda_CDS
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 295525 BED file entries.
+After filtering, kept 156 out of a possible 291 Sites
+Run Time = 0.00 seconds
+```
+
+Full final outlier set (390 SNPs):
+
+299 SNPs in exon regions, 368 SNPs in gene regions, 195 SNPs in coding sequences 
+
+```
+# VCF file containing all exon regions
+$ vcftools --vcf outliers_full_final.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.exon.sc.bed --out outlier_full_final_exon
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 337295 BED file entries.
+After filtering, kept 299 out of a possible 390 Sites
+Run Time = 0.00 seconds
+```
+
+```
+# VCF file containing all gene regions
+$ vcftools --vcf outliers_full_final.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.gene.sc.bed --out outlier_full_final_gene
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 35016 BED file entries.
+After filtering, kept 368 out of a possible 390 Sites
+Run Time = 1.00 seconds
+```
+
+```
+# VCF file containing all coding sequences 
+$ vcftools --vcf outliers_full_final.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.CDS.sc.bed --out outlier_full_final_CDS
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 295525 BED file entries.
+After filtering, kept 195 out of a possible 390 Sites
+Run Time = 0.00 seconds
+```
+
+I'm going to save the genes that correspond to the outlier loci. I want to see how many unique genes there are are and how many overlap across the three outlier detection methods. The list outlier SNP chromosomes and positions for each program are saved in `outlier_pcadapt_thinned500.loci.txt`, `outlier_lfmm2_6p9g9_red.loci.txt`, `outliers_rda_fullneut.loci.txt`. I need to first convert these .txt files to .bed files
+
+```
+$ cut -f1,2 outlier_pcadapt_thinned500.loci.txt | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > Pcadapt.Cand.Loci.bed
+$ cut -f1,2 outlier_lfmm2_6p9g9_red.loci.txt | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > LFMM.Cand.Loci.bed
+$ cut -f1,2 outliers_rda_fullneut.loci.txt | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > RDA.Cand.Loci.bed
+```
+
+I'll then intersect these .bed files with the bed file containing the gene information for the whole genome:
+
+```
+$ bedtools intersect -wb -a Pcadapt.Cand.Loci.bed -b sorted.ref3.0.gene.bed | grep -oh "gene=LOC.*;g" | sed 's/gene=//g' | sed 's/;g//g' | sort | uniq > Pcadapt.Genes
+$ bedtools intersect -wb -a LFMM.Cand.Loci.bed -b sorted.ref3.0.gene.bed | grep -oh "gene=LOC.*;g" | sed 's/gene=//g' | sed 's/;g//g' | sort | uniq > LFMM.Genes
+$ bedtools intersect -wb -a RDA.Cand.Loci.bed -b sorted.ref3.0.gene.bed | grep -oh "gene=LOC.*;g" | sed 's/gene=//g' | sed 's/;g//g' | sort | uniq > RDA.Genes
+```
+
+This gives me a separate count of unique genes for each program. I'm not going to combine these three files to make a file with all unique outlier genes. 
+
+```
+$ cat Pcadapt.Genes LFMM.Genes RDA.Genes | sort -u > All.Outlier.Genes
+$ cat All.Outlier.Genes | wc -l
+
+272
+```
+
+When I added the number of genes together for each individual program, it summed to 282 which means there is some overlap in genes for each program. I want to see which and how many overlap. First, I need to sort tthe gene lists for each program:
+
+```
+$ sort Pcadapt.Genes > sorted.pcadapt
+$ sort LFMM.Genes > sorted.lfmm
+$ sort RDA.Genes > sorted.rda
+```
+
+Now looking for entries that overlap across each file
+
+```
+# pcadapt and lfmm
+$ comm -12 sorted.pcadapt sorted.lfmm
+LOC111099610
+LOC111135070
+
+# pcadapt and rda
+$ comm -12 sorted.pcadapt sorted.rda
+LOC111101025
+LOC111101168
+LOC111135070
+LOC111138046
+
+# lfmm and rda
+$ comm -12 sorted.lfmm sorted.rda
+LOC111110485
+LOC111130378
+LOC111131017
+LOC111132962
+LOC111135070
+```
+
+One gene, LOC111135070, is shared across all three programs. 
+
+
+Now, I'm going to split the outliers up into a set of inversion SNPs and non-inversion SNPs. Then I'm going to repeat the same steps above. This is bit repetitive, but I'm going to remake the bed files and then intersect with the bed file that has the information for the large inversions. Then I will intersect the invert loci with the genes 
+
+```
+$ awk '{print $1 "\t" $2 "\t" ($2+1)}' outlier_pcadapt_thinned500.loci.txt > pcadapt_outliers.bed
+$ bedtools intersect -a pcadapt_outliers.bed -b Detected_large_inversions.bed -wa > pcadapt_invert
+$ bedtools intersect -wb -a pcadapt_invert -b sorted.ref3.0.gene.bed | grep -oh "gene=LOC.*;g" | sed 's/gene=//g' | sed 's/;g//g' | sort | uniq > Pcadapt.Invert.Genes
+
+$ awk '{print $1 "\t" $2 "\t" ($2+1)}' outlier_lfmm2_6p9g9_red.loci.txt > lfmm_outliers.bed
+$ bedtools intersect -a lfmm_outliers.bed -b Detected_large_inversions.bed -wa > lfmm_invert
+$ bedtools intersect -wb -a lfmm_invert -b sorted.ref3.0.gene.bed | grep -oh "gene=LOC.*;g" | sed 's/gene=//g' | sed 's/;g//g' | sort | uniq > LFMM.Invert.Genes
+
+$ awk '{print $1 "\t" $2 "\t" ($2+1)}' outliers_rda_fullneut.loci.txt > rda_outliers.bed
+$ bedtools intersect -a rda_outliers.bed -b Detected_large_inversions.bed -wa > rda_invert
+$ bedtools intersect -wb -a rda_invert -b sorted.ref3.0.gene.bed | grep -oh "gene=LOC.*;g" | sed 's/gene=//g' | sed 's/;g//g' | sort | uniq > RDA.Invert.Genes
+
+$ cat Pcadapt.Invert.Genes LFMM.Invert.Genes RDA.Invert.Genes | sort -u > All.Invert.Outlier.Genes
+$ $ cat All.Invert.Outlier.Genes | wc -l
+35
+```
+
+Sort and look for overlapped genes across the three programs 
+
+```
+$ sort Pcadapt.Invert.Genes > sorted.pcadapt.invert
+$ sort LFMM.Invert.Genes > sorted.lfmm.invert
+$ sort RDA.Invert.Genes > sorted.rda.invert
+
+
+$ comm -12 sorted.pcadapt.invert sorted.lfmm.invert
+LOC111099610
+LOC111135070
+
+$ comm -12 sorted.pcadapt.invert sorted.rda.invert
+LOC111101025
+LOC111101168
+LOC111135070
+LOC111138046
+
+$ comm -12 sorted.lfmm.invert sorted.rda.invert
+LOC111132962
+LOC111135070
+```
+
+One gene, LOC111135070, is shared across all three programs. 
+
+
+Repeating for the non-inversion SNPs
+
+```
+$ bedtools subtract -a pcadapt_outliers.bed -b Detected_large_inversions.bed > pcadapt_noinvert 
+$ bedtools intersect -wb -a pcadapt_noinvert -b sorted.ref3.0.gene.bed | grep -oh "gene=LOC.*;g" | sed 's/gene=//g' | sed 's/;g//g' | sort | uniq > Pcadapt.NoInvert.Genes
+
+$ bedtools subtract -a lfmm_outliers.bed -b Detected_large_inversions.bed > lfmm_noinvert
+$ bedtools intersect -wb -a lfmm_noinvert -b sorted.ref3.0.gene.bed | grep -oh "gene=LOC.*;g" | sed 's/gene=//g' | sed 's/;g//g' | sort | uniq > LFMM.NoInvert.Genes
+
+$ bedtools subtract -a rda_outliers.bed -b Detected_large_inversions.bed > rda_noinvert
+$ bedtools intersect -wb -a rda_noinvert -b sorted.ref3.0.gene.bed | grep -oh "gene=LOC.*;g" | sed 's/gene=//g' | sed 's/;g//g' | sort | uniq > RDA.NoInvert.Genes
+
+$ cat Pcadapt.NoInvert.Genes LFMM.NoInvert.Genes RDA.NoInvert.Genes | sort -u > All.NoInvert.Outlier.Genes
+$ cat All.NoInvert.Outlier.Genes | wc -l
+237
+```
+
+```
+$ sort LFMM.NoInvert.Genes > sorted.lfmm.noinvert
+$ sort RDA.NoInvert.Genes > sorted.rda.noinvert
+$ sort Pcadapt.NoInvert.Genes > sorted.pcadapt.noinvert
+
+$ comm -12 sorted.pcadapt.noinvert sorted.lfmm.noinvert 
+$ comm -12 sorted.pcadapt.noinvert sorted.rda.noinvert 
+$ comm -12 sorted.lfmm.noinvert sorted.rda.noinvert 
+LOC111110485
+LOC111130378
+LOC111131017
+```
+
+Only three genes overlap between RDA and LFMM. No genes overlap for all three programs. 
+
+
+
+## Gene Ontology with TopGO
+
+I have a gaf from NCBI with the GO terms for genes in the eastern oyster genome. I'm going to take this file and extract the Gene IDs and associated GO terms.
+
+In terminal:
+
+```
+$ wget https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/002/022/765/GCF_002022765.2_C_virginica-3.0/GCF_002022765.2_C_virginica-3.0_gene_ontology.gaf.gz
+
+$ gunzip GCF_002022765.2_C_virginica-3.0_gene_ontology.gaf.gz
+
+$ mv GCF_002022765.2_C_virginica-3.0_gene_ontology.gaf gene_ontology.gaf
+```
+
+Making a new .tab file with just the gene ID and GO IDs (3rd and 5th columns) renamed "gene_name" and "GeneOntologyIDs". The gene_name column will have one unique observation per row and all associated GO terms will be saved in the same row, with values separaetd by ;
+
+```
+$ awk 'NR>9 {print $3 "\t" $5}' gene_ontology.gaf | 
+> sed '1i gene_name\tGeneOntologyIDs' | 
+> sort | awk '
+>     NR==1 {print; next}
+>     $1!=prev {
+>         if (NR>2) print prev "\t" goids;
+>         prev=$1;
+>         goids=$2;
+>         next
+>     }
+>     {
+>         goids=goids "; " $2
+>     }
+>     END {print prev "\t" goids}
+> ' > gene2go_full.tab
+```
+
+Gene IDs for the candidate loci were extracted using a bed file containing all genes. The candidate gene IDs are saved to `Sig.loci.1.LOC`
+
+```
+$ cut -f1,2 all.new.outliers | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > Full.Cand.Loci.bed
+
+$ bedtools intersect -wb -a Full.Cand.Loci.bed -b sorted.ref3.0.gene.bed | grep -oh "gene=LOC.*;g" | sed 's/gene=//g' | sed 's/;g//g' | sort | uniq > Sig.loci.1.LOC
+```
+
+I'm making another file with the gene IDs and GO IDs for the candidate loci:
+
+```
+$ grep -F -f Sig.loci.1.LOC gene2go_full.tab > cand_genes_GO.tab
+
+# Add header
+$ awk 'BEGIN {print "gene_name\tGeneOntologyIDs"} {print}' cand_genes_GO.tab > cand_genes_GO_head.tab
+```
+
+```
+$ head cand_genes_GO_head.tab 
+gene_name	GeneOntologyIDs
+LOC111099053	GO:0003743; GO:0006413
+LOC111099197	GO:0030246
+LOC111100382	GO:0008168; GO:0010468; GO:0016021; GO:0032259; GO:0046872; GO:0071557; GO:0071558
+LOC111100601	GO:0016020; GO:0016125; GO:0016705; GO:0046872
+LOC111100630	GO:0005890; GO:0006813; GO:0006814; GO:0006875; GO:0030004; GO:0098662
+LOC111100706	GO:0004497; GO:0005506; GO:0016705; GO:0020037; GO:0055114
+LOC111101025	GO:0003743; GO:0004004; GO:0005524; GO:0006413
+LOC111101041	GO:0005524; GO:0015991; GO:0016787; GO:0033180; GO:0046034
+LOC111101168	GO:0003341; GO:0005930; GO:0036159; GO:0060285
+```
+
+
+In R:
+
+```{r}
+#if (!require("BiocManager", quietly = TRUE))
+    #install.packages("BiocManager")
+
+#BiocManager::install("topGO")
+```
+
+```{r setup, include=FALSE}
+library(topGO)
+```
+
+Read in gene2go information 
+
+Old file names: all_genes (gene2go_full.tab); candidate genes (gene2go.tab)
+
+```{r}
+all_gene2go<-read.delim("gene2go_full.tab", sep="\t")
+out_gene2go<-read.delim("cand_genes_GO_rda_head.tab", sep="\t")
+```
+
+Make list of genes for input to TopGO
+
+```{r}
+cand_genes <- as.character(unique(out_gene2go$gene_name))
+all_genes <- as.character(all_gene2go$gene_name)
+out_GeneList <- factor(as.integer(all_genes %in% cand_genes))
+names(out_GeneList) <- all_genes
+```
+
+The following code will perform GO enrichment using the weighted Fisher's exact test  
+
+Read in gene-to-go-mappings
+```{r}
+gene2go_topgo<-readMappings("gene2go_full.tab", IDsep=";", sep="\t")
+```
+
+Set function to select genes of interest (ie those that have pvalue < 0.05)
+```{r}
+topDiffGenes <- function(allScore) {
+return(allScore < 0.05)}
+```
+
+### Biological Processes
+
+Create `topGOdata` object, which is required for topGO analysis
+```{r}
+GO_OUT_BP_pi <-new("topGOdata", ontology="BP", gene2GO=gene2go_topgo, allGenes=out_GeneList, annot = annFUN.gene2GO, geneSel=topDiffGenes)
+```
+
+Run GO enrichment test 
+```{r}
+GO_OUT_BP_FE_pi <- runTest(GO_OUT_BP_pi, algorithm="weight01", statistic="fisher")
+```
+
+Generate results table 
+```{r}
+GO_OUT_BP_En_pi <- GenTable(GO_OUT_BP_pi, Fisher = GO_OUT_BP_FE_pi, orderBy = "Fisher",  topNodes = 100, numChar = 100)
+```
+Only taking the top 100 GO terms 
+
+Filter by significant results
+```{r}
+GO_OUT_BP_En_pi$Fisher<-as.numeric(GO_OUT_BP_En_pi$Fisher)
+GO_OUT_BP_En_sig_pi<-GO_OUT_BP_En_pi[GO_OUT_BP_En_pi$Fisher<0.05,]
+```
+
+Merge `GO_OUT_BP_En_sig_pi` with GO and gene info. 
+```{r}
+# Separate GO terms 
+out_gene2go <- out_gene2go %>%
+  separate_rows(GeneOntologyIDs, sep = ";")
+
+# Ensure GO terms in both datasets are formatted similarly (trim whitespaces)
+out_gene2go$GeneOntologyIDs <- trimws(out_gene2go$GeneOntologyIDs)
+GO_OUT_BP_En_sig_pi$GO.ID <- trimws(GO_OUT_BP_En_sig_pi$GO.ID)
+
+# Join the datasets based on GO term
+GO_OUT_BP_En_sig_gene_pi <- out_gene2go %>%
+  left_join(GO_OUT_BP_En_sig_pi, by = c("GeneOntologyIDs" = "GO.ID")) %>%
+  na.omit()
+
+# Add ontology column 
+GO_OUT_BP_En_sig_gene_pi$ontology <- "Biological Processes"
+```
+
+### Cellular Components
+
+Create `topGOdata` object, which is required for topGO analysis
+```{r}
+GO_OUT_CC_pi <-new("topGOdata", ontology="CC", gene2GO=gene2go_topgo, allGenes=out_GeneList, annot = annFUN.gene2GO, geneSel=topDiffGenes)
+```
+
+Run GO enrichment test 
+```{r}
+GO_OUT_CC_FE_pi <- runTest(GO_OUT_CC_pi, algorithm="weight01", statistic="fisher")
+```
+
+Generate results table 
+```{r}
+GO_OUT_CC_En_pi <- GenTable(GO_OUT_CC_pi, Fisher = GO_OUT_CC_FE_pi, orderBy = "Fisher",  topNodes = 100, numChar = 100)
+```
+Only taking the top 100 GO terms 
+
+Filter by significant results
+```{r}
+GO_OUT_CC_En_pi$Fisher<-as.numeric(GO_OUT_CC_En_pi$Fisher)
+GO_OUT_CC_En_sig_pi<-GO_OUT_CC_En_pi[GO_OUT_CC_En_pi$Fisher<0.05,]
+```
+
+Merge `GO_OUT_CC_En_sig_pi` with GO and gene info. 
+```{r}
+# Separate GO terms 
+out_gene2go <- out_gene2go %>%
+  separate_rows(GeneOntologyIDs, sep = ";")
+
+# Ensure GO terms in both datasets are formatted similarly (trim whitespaces)
+out_gene2go$GeneOntologyIDs <- trimws(out_gene2go$GeneOntologyIDs)
+GO_OUT_CC_En_sig_pi$GO.ID <- trimws(GO_OUT_CC_En_sig_pi$GO.ID)
+
+# Join the datasets based on GO term
+GO_OUT_CC_En_sig_gene_pi <- out_gene2go %>%
+  left_join(GO_OUT_CC_En_sig_pi, by = c("GeneOntologyIDs" = "GO.ID")) %>%
+  na.omit()
+
+# Add ontology column 
+GO_OUT_CC_En_sig_gene_pi$ontology <- "Cellular Components"
+```
+
+### Molecular Functions
+
+Create `topGOdata` object, which is required for topGO analysis
+```{r}
+GO_OUT_MF_pi <-new("topGOdata", ontology="MF", gene2GO=gene2go_topgo, allGenes=out_GeneList, annot = annFUN.gene2GO, geneSel=topDiffGenes)
+```
+
+Run GO enrichment test 
+```{r}
+GO_OUT_MF_FE_pi <- runTest(GO_OUT_MF_pi, algorithm="weight01", statistic="fisher")
+```
+
+Generate results table 
+```{r}
+GO_OUT_MF_En_pi <- GenTable(GO_OUT_MF_pi, Fisher = GO_OUT_MF_FE_pi, orderBy = "Fisher",  topNodes = 100, numChar = 100)
+```
+Only taking the top 100 GO terms 
+
+Filter by significant results
+```{r}
+GO_OUT_MF_En_pi$Fisher<-as.numeric(GO_OUT_MF_En_pi$Fisher)
+GO_OUT_MF_En_sig_pi<-GO_OUT_MF_En_pi[GO_OUT_MF_En_pi$Fisher<0.05,]
+```
+
+Merge `GO_OUT_MF_En_sig_pi` with GO and gene info. 
+```{r}
+# Separate GO terms 
+out_gene2go <- out_gene2go %>%
+  separate_rows(GeneOntologyIDs, sep = ";")
+
+# Ensure GO terms in both datasets are formatted similarly (trim whitespaces)
+out_gene2go$GeneOntologyIDs <- trimws(out_gene2go$GeneOntologyIDs)
+GO_OUT_MF_En_sig_pi$GO.ID <- trimws(GO_OUT_MF_En_sig_pi$GO.ID)
+
+# Join the datasets based on GO term
+GO_OUT_MF_En_sig_gene_pi <- out_gene2go %>%
+  left_join(GO_OUT_MF_En_sig_pi, by = c("GeneOntologyIDs" = "GO.ID")) %>%
+  na.omit()
+
+# Add ontology column 
+GO_OUT_MF_En_sig_gene_pi$ontology <- "Molecular Functions"
+```
+
+### Join ontologies
+
+Bind `GO_OUT_BP_En_sig_gene_pi`, `GO_OUT_CC_En_sig_gene_pi`, and `GO_OUT_MF_En_sig_gene_pi` to make a df that has significantly enriched GO terms for all ontologies 
+```{r}
+GO_OUT_En_sig_gene_pi <- rbind(GO_OUT_BP_En_sig_gene_pi, GO_OUT_CC_En_sig_gene_pi, GO_OUT_MF_En_sig_gene_pi)
+```
+
+Merge `pi_bed_filt` with `GO_PEVE_En_sig_gene` and calculate proportion of significant genes
+```{r}
+merged_out_genes <- GO_OUT_En_sig_gene_pi %>%
+  mutate(prop.sig.genes = Significant/Annotated)
+
+# Write to csv 
+write.csv(merged_out_genes, "OUT_GO_en_sig_gene_rda.csv")
+```
+
+Plot - need to work out 
+```{r}
+GO_plot_pi<-ggplot(merged_out_genes, aes(x = Term, y = -log(Fisher), size = prop.sig.genes, fill = -log(Fisher))) +
+  expand_limits(y = 1.5) +
+  ylim(1, 7.25) +
+  #Add horizontal lines with a single aesthetic value
+  geom_hline(yintercept = -log10(0.01), linetype = "longdash", colour = "black", linewidth = .6) +
+  geom_hline(yintercept = -log10(0.001), linetype = "solid", colour = "black", linewidth = .6) +
+  geom_point(shape = 21) + 
+  scale_size(range = c(2, 12)) + 
+  scale_fill_continuous(low = "#1AD3D1FF", high = "#4686FBFF") +
+  xlab('') + 
+  ylab('Enrichment score') +
+  #labs(caption = 'Cut-off lines at p=0.01 and p=0.001') +
+  theme_bw() +
+  facet_grid(vars(ontology), scales = "free", space = "free_y") +
+  coord_flip(); GO_plot_pi
+```
+
+I wanted to look at GO terms that overlapped across programs split up into inversion and non-inversion datasets. In Excel extracted the GO terms for each program, saved the unique terms and sorted them. I then saved each list as a txt file in terminal and compared overlapping GO terms across programs. 
+
+For the inversion dataset:
+
+```
+$ cat Pcadapt.Invert.GO.sorted | wc -l
+28
+
+$ cat LFMM.Invert.GO.sorted | wc -l
+9
+
+$ cat RDA.Invert.GO.sorted | wc -l
+11
+
+$ comm -12 Pcadapt.Invert.GO.sorted LFMM.Invert.GO.sorted 
+GO:0010971
+GO:0035329
+GO:0110032
+$ comm -12 Pcadapt.Invert.GO.sorted RDA.Invert.GO.sorted 
+GO:0031213
+$ comm -12 LFMM.Invert.GO.sorted RDA.Invert.GO.sorted 
+
+$ cat Pcadapt.Invert.GO.sorted LFMM.Invert.GO.sorted RDA.Invert.GO.sorted | sort -u > All.Invert.Outlier.GO
+$ cat All.Invert.Outlier.GO | wc -l
+44
+```
+
+
+For the non-inversion dataset:
+
+```
+$ cat Pcadapt.NoInvert.GO.sorted | wc -l
+12
+
+$ cat LFMM.NoInvert.GO.sorted | wc -l
+6
+
+$ cat RDA.NoInvert.GO.sorted | wc -l
+104
+```
+
+```
+$ comm -12 Pcadapt.NoInvert.GO.sorted LFMM.NoInvert.GO.sorted 
+$ comm -12 Pcadapt.NoInvert.GO.sorted RDA.NoInvert.GO.sorted 
+$ comm -12 LFMM.NoInvert.GO.sorted RDA.NoInvert.GO.sorted 
+GO:0004565
+
+$ cat Pcadapt.NoInvert.GO.sorted LFMM.NoInvert.GO.sorted RDA.NoInvert.GO.sorted | sort -u > All.NoInvert.Outlier.GO
+$ cat All.NoInvert.Outlier.GO | wc -l
+121
+```
+
+Only one GO term overlaps between the LFMM and RDA dataset. 
+
+I also looked at the number of unique genes corresponding to the GO terms for the inversion and non-inversion datasets. There were 19 unique genes that were annotated with GO terms for the inversion datast. 

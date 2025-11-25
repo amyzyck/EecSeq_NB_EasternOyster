@@ -1,0 +1,2365 @@
+---
+title: "NB_PopSeaGenAnalysis_NeutralSNPs"
+author: "Amy Zyck"
+date: '2024-07-21'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Population and Seascape Genomics Analyses on Neutral SNP data set 
+
+Following [outlier detection](https://github.com/amyzyck/EecSeq_NB_EasternOyster/blob/master/Analysis/Analysis_Final/NB_OutlierDetection_Final.Rmd), the full SNP data set was split into a set of neutral SNPs and a set of outlier SNPs. Here, I'll be analzying the neutral SNPs, measuring population pairwise Fst (population differentiation), heterozygosity (genetic diversity). I was also be running a redundancy analysis to identify any significant associations with environmental predictors. 
+
+## Organizing vcf files
+
+In terminal:
+
+In `NB_ddhaplo_working` directory, make a new directory for Pop and Sea Gen analyses
+
+```
+$ mkdir NB_PopSeaGen_Analysis_working 
+$ cd NB_NB_PopSeaGen_Analysis_working
+```
+
+Make a sub directory for the neutral SNP sets and link vcf file
+
+```
+$ mkdir Neutral_SNPs_
+$ cd Neutral_SNPs_
+
+$ ln -s ../../NB_OutlierDetection_working/neutralloci.recode.vcf .
+```
+
+```{r}
+#Loading all the necessary packages
+library(adegenet)
+library(vcfR)
+library("radiator") # Conversion from vcf to a lot of other formats
+library("dplyr")
+library("hierfstat")
+library("ggplot2") #For plotting
+library("reshape2") #For plotting
+#library("plyr")
+library("cowplot") #For plotting manuscript figs
+library(PCAviz)  #Visualizing output of PCA
+#library("stringr")
+library(tidyverse)
+```
+
+## Making files
+
+```{r}
+# Setting up strata file - population info and environmental data 
+strata6 <- read.table("../strata6_red_12var", header=TRUE)
+
+# Making new version of strata file with one row per population
+strata_6pops <- strata6 %>% distinct(Population, .keep_all = TRUE)
+```
+
+```{r}
+#Providing population names for plotting
+pop_order_6pops <- c("BAR","BIS","GB","KIC","MCD","PVD")
+```
+
+**Make genind object**
+
+```{r}
+# VCF file with Neutral SNPs 
+my_vcf_neut <- read.vcfR("neutralloci.recode.vcf")
+```
+
+```{r}
+rad_neut.filt <- vcfR2genind(my_vcf_neut, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+
+rad_neut.filt
+```
+
+```{r}
+info_neut <- as.data.frame(read.table("../strata6_red_12var",header = T,sep = "\t",stringsAsFactors = F))
+mystrats_neut <- as.data.frame(matrix(nrow = length(indNames(rad_neut.filt)),ncol=16))
+just_neut.strats <- dplyr::select(info_neut,c("Population"))
+stratted_neut.filt <- strata(rad_neut.filt, formula= Population, combine = TRUE,just_neut.strats)
+stratted_neut.filt@other <- info_neut[,3:16]
+
+stratted_neut.filt
+```
+
+**Make hierfstat object**
+
+```{r}
+hf_neut.filt <- genind2hierfstat(rad_neut.filt, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+```
+
+
+## Pairwise Fst of neutral SNPs 
+
+```{r}
+fst_neut.mat <- pairwise.WCfst(hf_neut.filt)
+```
+
+```{r}
+# get bootstrap confidence values for Fst
+boot_neut_fst <- boot.ppfst(hf_neut.filt,nboot = 1000)
+boot5_neut_fst <- boot.ppfst(hf_neut.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+Fst_neut_ll <- boot5_neut_fst$ll
+```
+
+```{r}
+gindF_neut.fst.mat.triN <- as.matrix(fst_neut.mat)
+colnames(gindF_neut.fst.mat.triN) <- pop_order_6pops
+rownames(gindF_neut.fst.mat.triN) <- pop_order_6pops
+```
+
+```{r}
+meltedN_neut <- melt(gindF_neut.fst.mat.triN, na.rm =TRUE)
+round(gindF_neut.fst.mat.triN,4)
+```
+
+```{r}
+summary(meltedN_neut$value)
+```
+
+```{r}
+#Plotting Pairwise fst
+neut <- ggplot(data = meltedN_neut, aes(Var2, Var1, fill = value))+ geom_tile(color = "white")+ 
+  scale_fill_gradient(low = "white", high = "chocolate1", name="FST")  +
+  ggtitle(expression(atop("Pairwise FST, WC (1984) Neutral SNPs for 6 Populations", atop(italic("N = 60, L = 22,470"), ""))))+
+  labs( x = "Sampling Site", y = "Sampling Site") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),axis.text.y = element_text(size = 12)) + 
+  theme(axis.title = element_text(size = 12),legend.text = element_text(size =14), legend.title = element_text(size =14)) +
+  theme(plot.title = element_text(size = 14)) +
+coord_fixed()
+neut
+```
+
+```{r}
+library("PCAviz")  #Visualizing output of PCA
+library("cowplot") #Used with PCAviz
+```
+
+```{r}
+# Create color scheme
+# green=#7FC97F, blue = #00008B, orange=#FF7F00, purple=#9A32CD, pink=#FF1493, cyan=#00FFFF
+cols_6pops = c("#7FC97F","#00008B","#FF7F00","#9A32CD","#FF1493","#00FFFF")
+```
+
+```{r}
+# Plot a PCA for the neutral loci
+x_neut <- scaleGen(rad_neut.filt, NA.method = "mean")
+neut_pca <- dudi.pca(x_neut, center = FALSE, scale = FALSE, scannf = FALSE, nf = 4)
+eig_percent_neut <- round((neut_pca$eig / (sum(neut_pca$eig))) * 100, 2)
+
+pca_dat_neut <- as.data.frame(neut_pca$li) %>%
+                    rownames_to_column(var = "ind") %>%
+                    cbind(pop = pop(rad_neut.filt)) %>%
+                    mutate(pop = factor(pop, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD")))
+
+
+ggplot(data = pca_dat_neut) +
+    geom_point(aes(x = Axis1, y = Axis2, colour = pop), size = 3, alpha = 0.8) +
+    scale_colour_manual(values = cols_6pops) +
+    theme_minimal() +
+    labs(x = paste("", "Axis 1: ", eig_percent_neut[1], "%"), y = paste("", "Axis 2: ", eig_percent_neut[2], "%")) +
+    coord_fixed(ratio = 1)
+```
+
+## Genetic diversity (observed and expected heterozygosity)
+
+```{r}
+comb_neut <- summary(stratted_neut.filt)
+names(stratted_neut.filt)
+```
+
+```{r}
+plot(comb_neut$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+```
+
+```{r}
+plot(comb_neut$Hobs,comb_neut$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+```
+
+```{r}
+bartlett.test(list(comb_neut$Hexp, comb_neut$Hobs)) # a test : H0: Hexp = Hobs
+```
+
+**_Significant difference between Observed and expected heterozygosity_**.  
+
+```{r}
+basicstat_neut <- basic.stats(hf_neut.filt, diploid = TRUE, digits = 3)
+```
+
+```{r}
+as.data.frame(basicstat_neut$overall)
+```
+
+```{r}
+# get bootstrap confidence values for Fis
+boot_neut <- boot.ppfis(hf_neut.filt,nboot = 1000)
+boot5_neut <- boot.ppfis(hf_neut.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+# combine all pop statistics
+colnames(basicstat_neut$Ho) <- pop_order_6pops
+Ho_neut <- colMeans(basicstat_neut$Ho,na.rm = T)
+He_neut <- colMeans(basicstat_neut$Hs,na.rm = T)
+Fis_neut <- boot5_neut$fis.ci$ll
+y_neut <- cbind(pop_order_6pops,Ho_neut,He_neut, Fis_neut, strata_6pops[,3:16])
+```
+
+```{r}
+summary(He_neut)
+```
+
+```{r}
+summary(Fis_neut)
+```
+
+Plotting F statistics versus each environmental variables (including lat and long)
+
+This can be modified for each F statistic (He, Ho, Fis) - just make sure to change the title in the function. 
+
+```{r}
+# Function to generate and display plots for all environmental variables
+generate_plots <- function(data, response_var, env_vars, pop_order_var) {
+  # Define color scheme
+  color_scheme <- c("#7FC97F","#00008B","#FF7F00","#9A32CD","#FF1493","#00FFFF")
+  
+  for (env_var in env_vars) {
+    # Ensure variable names are valid
+    if (!all(c(response_var, env_var, pop_order_var) %in% colnames(data))) {
+      cat("Skipping variable", env_var, "as it is not found in the data\n")
+      next
+    }
+    
+    # Remove rows with missing values in the relevant columns
+    subset_data <- data[complete.cases(data[, c(response_var, env_var, pop_order_var)]), ]
+    
+    # Calculate R² value
+    formula <- as.formula(paste(response_var, "~", env_var))
+    R2_value <- round(summary(lm(formula, data = subset_data))$r.squared, 8)
+    
+    # Generate plot title
+    plot_title <- paste("Observed Heterozygosity vs", env_var, ", Neutral SNPs 6 pops")
+    
+    # Generate plot
+    p <- ggplot(subset_data, aes_string(x = env_var, y = response_var)) + 
+      geom_point(aes_string(color = pop_order_var), shape = 16, size = 3) + 
+      scale_color_manual(values = color_scheme) +
+      geom_smooth(method = "lm", color = "black") + 
+      ggtitle(plot_title) +
+      annotate(geom = "text", label = paste("italic(R^2)==", R2_value), x = Inf, y = Inf, hjust = 1.1, vjust = 2, parse = TRUE) +
+      scale_x_continuous() +
+      theme_bw() +
+      theme(legend.title = element_blank(),
+            plot.title = element_text(hjust = 0.5))
+    
+    # Print the plot
+    print(p)
+    
+    cat("Generated plot for", env_var, "\n")
+  }
+}
+```
+
+```{r}
+generate_plots(y_neut, "Ho_neut", colnames(y_neut)[5:18], "pop_order_6pops")
+```
+
+
+## Estimating effective migration surfaces [(EEMS)](https://github.com/dipetkov/eems)
+
+The program `runeems_snps` implements the EEMS method for analyzing spatial population structure. This version uses the pairwise genetic dissimilarity matrix computed from SNP data.
+
+Here is the code used to run `runeems_snps` in both RStudio and command-line. Detailed steps for running this program can be accessed [here](https://github.com/dipetkov/eems/tree/master/runeems_snps). Input files are created in RStudio or manually (see below) and saved to the directory where `runeems_snps` will be run. The program is then run in the command-line. The outputs are then plotted in RStudio. 
+
+`runeems_snps` requires three data input files that have the same file name but different extension. The description below assumes that datapath is the full path + the file name (but without the extension).
+
+__1. datapath.diffs__
+
+`datapath.diffs` is the matrix of average pairwise genetic dissimilarities. This can be computed with bed2diffs from genetic data in plink binary format.
+
+The dissimilarity matrix is nonnegative, symmetric, with 0s on the main diagonal. These conditions are necessary but not sufficient for diffs to be a valid dissimilarity matrix. Mathematically, diffs should be conditionally negative definite.
+
+**Steps for generating `datapath.diffs` are completed in RStudio.**
+```{r}
+# V1 method to get diffs matrix, preferred
+bed2diffs_v1 <- function(Geno) {
+  nIndiv <- nrow(Geno)
+  nSites <- ncol(Geno)
+  Diffs <- matrix(0, nIndiv, nIndiv)
+  
+  for (i in seq(nIndiv - 1)) {
+    for (j in seq(i + 1, nIndiv)) {
+      x <- Geno[i, ]
+      y <- Geno[j, ]
+      Diffs[i, j] <- mean((x - y)^2, na.rm = TRUE)
+      Diffs[j, i] <- Diffs[i, j]
+    }
+  }
+  Diffs
+}
+```
+
+```{r}
+# V2 method to get .diffs matrix, only if V1 doesn't work
+bed2diffs_v2 <- function(Geno) {
+  nIndiv <- nrow(Geno)
+  nSites <- ncol(Geno)
+  Miss <- is.na(Geno)
+  ## Impute NAs with the column means (= twice the allele frequencies)
+  Mean <- matrix(colMeans(Geno, na.rm = TRUE), ## a row of means
+                 nrow = nIndiv, ncol = nSites, byrow = TRUE) ## a matrix with nIndiv identical rows of means
+  Mean[Miss == 0] <- 0 ## Set the means that correspond to observed genotypes to 0
+  Geno[Miss == 1] <- 0 ## Set the missing genotypes to 0 (used to be NA) 
+  Geno <- Geno + Mean
+  ## Compute similarities
+  Sim <- Geno %*% t(Geno) / nSites
+  SelfSim <- diag(Sim) ## self-similarities
+  vector1s <- rep(1, nIndiv) ## vector of 1s
+  ## This chunk generates a `diffs` matrix
+  Diffs <- SelfSim %*% t(vector1s) + vector1s %*% t(SelfSim) - 2 * Sim
+  Diffs
+}
+```
+
+```{r}
+geno_neut <- stratted_neut.filt@tab
+```
+
+```{r}
+# Get rid of non-biallelic loci
+multi_neut.loci <- names(which(stratted_neut.filt@loc.n.all != 2))
+multi_neut.cols <- which(grepl(paste0("^", multi_neut.loci, "\\.\\d+$", collapse = "|"), colnames(geno_neut)))
+if (length(multi_neut.cols)) geno_neut <- geno_neut[, - multi_neut.cols]
+nloci_neut <- dim(geno_neut)[2] / 2
+dim(geno_neut)
+```
+
+```{r}
+stopifnot(identical(stratted_neut.filt@type, 'codom'))
+```
+
+```{r}
+# bed2diffs functions  
+diffs_neut.v1 <- bed2diffs_v1(geno_neut)
+diffs_neut.v2 <- bed2diffs_v2(geno_neut)
+# Round to 6 digits
+diffs_neut.v1 <- round(diffs_neut.v1, digits = 6)
+diffs_neut.v2 <- round(diffs_neut.v2, digits = 6)
+```
+
+**Check that the dissimilarity matrix has one positive eigenvalue and nIndiv-1 negative eigenvalues, as required by a full-rank Euclidean distance matrix. If the V1 method does not make a Euclidean matrix, you must use V2.**
+
+```{r}
+tail(sort(round(eigen(diffs_neut.v1)$values, digits = 2)))
+```
+
+```{r}
+tail(sort(round(eigen(diffs_neut.v2)$values, digits = 2)))
+```
+
+```{r}
+# Set suffix for EEMS input files
+suf <- "neutdata-filt"
+```
+
+```{r}
+# This saves the file to directory 
+write.table(diffs_neut.v1, paste(suf,".v1.diffs",sep=""), 
+            col.names = FALSE, row.names = FALSE, quote = FALSE)
+```
+
+
+__2. datapath.coord__
+
+`datapath.coord` is the sample coordinates, two coordinates per sample, one sample per line. The sampling locations should be given in the same order as the rows and columns of the dissimilarity matrix. 
+
+```{r}
+# Save longitude and latitude columns from strata6 file
+latlong <- strata6[,3:4]
+# Create new data frame with longitude column first - matches order with outer file for eems analysis 
+longlat <- latlong[, c("Longitude", "Latitude")]
+```
+
+```{r}
+#write .coord file
+write.table(longlat, paste(suf,".v1.coord",sep=""),col.names = FALSE, row.names = FALSE,quote = FALSE)
+```
+
+__3. datapath.outer__
+
+`datapath.outer` is the habitat coordinates, as a sequence of vertices that form a closed polygon. The habitat vertices should be listed **counterclockwise** and the first vertex should also be the last vertex, so that the outline is a closed ring. Otherwise, EEMS attempts to "correct" the polygon and prints a warning message. I used [Google Maps API v3 Tool](http://www.birdtheme.org/useful/v3tool.html) to outline and save the coordinates for Narragansett Bay. Coordinates were then copied, pasted, and saved as `neutdat-filt.outer` using nano in terminal. Coordinates were saved as Longitude and Latitude to match the sample site coordinates file.
+
+I made three different habitat coordinates files, running eems separately for each. The first file includes all of Narragansett Bay along with access to the salt ponds (southwest). I previously had a sample site in one of the salt ponds and wanted to capture potential gene flow to and from that area. The second file is the smallest closed polygon shape around these six sample sites. I wanted to minimize the grid space to hopefully capture small-scale migration surface and genetic diversity differences across sites and the gene flow space. The third file follows the shape of the bay closely and includes where the bay opens up to the Atlantic ocean. I wanted to capture any exchange of larvae from the east bay to the west that may occur at the southern most part of the bay. 
+
+`runeems_snps` is run for all three habitats and plotted below.
+
+In terminal: 
+
+Create a file with the specified parameters for running the eems model:
+
+```
+$ cat params-neutdata-D200-chain1.ini 
+
+output:
+datapath = /home/azyck/NB_capture_both/NB_ddhaplo/NB_ddhaplo_working/NB_PopSeaGen_Analysis_working/Neutral_SNPs_6p9g9/Neutral_EEMS/neutdata-filt.v1
+mcmcpath = /home/azyck/NB_capture_both/NB_ddhaplo/NB_ddhaplo_working/NB_PopSeaGen_Analysis_working/Neutral_SNPs_6p9g9/Neutral_EEMS/neutdata-D200-chain1
+nIndiv = 60
+nSites = 22804
+nDemes = 200
+diploid = true
+numMCMCIter = 5000000
+numBurnIter = 1000000
+numThinIter = 9999
+qEffctProposalS2 = 0.005
+mEffctProposalS2 = 4.0
+mrateMuProposalS2 = 0.3
+mSeedsProposalS2 = 0.05
+qSeedsProposalS2 = 0.05
+```
+
+The MCMC iteration and burn-in iteration values followed those chosen by [K. Silliman](https://onlinelibrary.wiley.com/doi/full/10.1111/eva.12766). The five ProposalS2 hyperparameter values were adjusted from default settings, so that the frequency of accepting proposals of different types fell between 10 and 40%. I also had parameter files with the number of demes set to 300 and 600. For each number of demes, I ran the eems model three separate times changing the seed. For each separate run, I changed the mcmcpath in the params file so that it was either chain1, chain2, or chain3. 
+
+**Running the eems model in terminal**
+The code is displayed for the three model runs each with 200 demes. This was repeated for 300 and 600 demes.
+
+```
+$ runeems_snps --params params-neutdata-D200-chain1.ini --seed 123
+
+$ runeems_snps --params params-neutdata-D200-chain2.ini --seed 456
+
+$ runeems_snps --params params-neutdata-D200-chai3.ini --seed 789
+```
+
+
+**Back in RStudio to plot `runeems_snps` outputs**
+```{r}
+library("devtools")
+install_github("dipetkov/reemsplots2")
+```
+
+```{r}
+library(reemsplots2)
+```
+
+Plotting three different versions of the EEMS analysis based on different habitat coordinate patterns. 
+
+EEMS part 1 - full bay plus salt ponds
+
+```{r} 
+# Plotting EEMS after running runeems_snps
+path_P1 = "./Neutral_EEMS/"
+mcmcpath_full_P1 = c(paste0(path_P1,"neutdata-D200-chain1"),paste0(path_P1,"neutdata-D200-chain2"),paste0(path_P1,"neutdata-D200-chain3"),paste0(path_P1,"neutdata-D300-chain1"),paste0(path_P1,"neutdata-D300-chain2"),paste0(path_P1,"neutdata-D300-chain3"),paste0(path_P1,"neutdata-D600-chain1"),paste0(path_P1,"neutdata-D600-chain2"),paste0(path_P1,"neutdata-D600-chain3"))
+mcmcpath_D200_P1 = c(paste0(path_P1,"neutdata-D200-chain1"),paste0(path_P1,"neutdata-D200-chain2"),paste0(path_P1,"neutdata-D200-chain3"))
+mcmcpath_D300_P1 = c(paste0(path_P1,"neutdata-D300-chain1"),paste0(path_P1,"neutdata-D300-chain2"),paste0(path_P1,"neutdata-D300-chain3"))
+mcmcpath_D600_P1 = c(paste0(path_P1,"neutdata-D600-chain1"),paste0(path_P1,"neutdata-D600-chain2"),paste0(path_P1,"neutdata-D600-chain3"))
+```
+
+```{r}
+make_eems_plots(mcmcpath_D300_P1, longlat = TRUE, dpi = 250, add_grid = FALSE,
+  col_grid = "#BBBBBB", add_demes = TRUE, col_demes = "#000000",
+  add_outline = TRUE, col_outline = "#BBBBBB", eems_colors = NULL,
+  prob_level = 0.9, m_colscale = NULL, q_colscale = NULL,
+  add_abline = FALSE)
+```
+
+```{r}
+# Older version of plotting eems results 
+eems.plots(mcmcpath_full_P1, plotpath = paste0(path_P1,"EEMS_neutdata_outputs"),
+           longlat = T,add.grid=F,add.outline = T,add.demes = T,
+           projection.in = "+proj=longlat +datum=WGS84",projection.out = "+proj=merc +datum=WGS84",
+           add.map = T,add.abline = T, add.r.squared = T)
+```
+
+EEMS part 2 - smallest polygon 
+
+```{r} 
+# Plotting EEMS after running runeems_snps
+path_P2 = "./Neutral_EEMS/EEMS_part2/"
+mcmcpath_full_P2 = c(paste0(path_P2,"neutdata-D200-chain1"),paste0(path_P2,"neutdata-D200-chain2"),paste0(path_P2,"neutdata-D200-chain3"),paste0(path_P2,"neutdata-D300-chain1"),paste0(path_P2,"neutdata-D300-chain2"),paste0(path_P2,"neutdata-D300-chain3"),paste0(path_P2,"neutdata-D600-chain1"),paste0(path_P2,"neutdata-D600-chain2"),paste0(path_P2,"neutdata-D600-chain3"))
+mcmcpath_D200_P2 = c(paste0(path_P2,"neutdata-D200-chain1"),paste0(path_P2,"neutdata-D200-chain2"),paste0(path_P2,"neutdata-D200-chain3"))
+mcmcpath_D300_P2 = c(paste0(path_P2,"neutdata-D300-chain1"),paste0(path_P2,"neutdata-D300-chain2"),paste0(path_P2,"neutdata-D300-chain3"))
+mcmcpath_D600_P2 = c(paste0(path_P2,"neutdata-D600-chain1"),paste0(path_P2,"neutdata-D600-chain2"),paste0(path_P2,"neutdata-D600-chain3"))
+```
+
+```{r}
+make_eems_plots(mcmcpath_D600_P2, longlat = TRUE, dpi = 250, add_grid = FALSE,
+  col_grid = "#BBBBBB", add_demes = TRUE, col_demes = "#000000",
+  add_outline = TRUE, col_outline = "#BBBBBB", eems_colors = NULL,
+  prob_level = 0.9, m_colscale = NULL, q_colscale = NULL,
+  add_abline = FALSE)
+```
+
+```{r}
+# Older version of plotting eems results 
+eems.plots(mcmcpath_full_P2, plotpath = paste0(path_P2,"EEMS_neutdata_part2_outputs"),
+           longlat = T,add.grid=F,add.outline = T,add.demes = T,
+           projection.in = "+proj=longlat +datum=WGS84",projection.out = "+proj=merc +datum=WGS84",
+           add.map = T,add.abline = T, add.r.squared = T)
+```
+
+
+EEMS part 3 - full bay with Atlantic ocean exchange 
+
+```{r} 
+# Plotting EEMS after running runeems_snps
+path_P3 = "./Neutral_EEMS/EEMS_part3/"
+mcmcpath_full_P3 = c(paste0(path_P3,"neutdata-D200-chain1"),paste0(path_P3,"neutdata-D200-chain2"),paste0(path_P3,"neutdata-D200-chain3"),paste0(path_P3,"neutdata-D300-chain1"),paste0(path_P3,"neutdata-D300-chain2"),paste0(path_P3,"neutdata-D300-chain3"),paste0(path_P3,"neutdata-D600-chain1"),paste0(path_P3,"neutdata-D600-chain2"),paste0(path_P3,"neutdata-D600-chain3"))
+mcmcpath_D200_P3 = c(paste0(path_P3,"neutdata-D200-chain1"),paste0(path_P3,"neutdata-D200-chain2"),paste0(path_P3,"neutdata-D200-chain3"))
+mcmcpath_D300_P3 = c(paste0(path_P3,"neutdata-D300-chain1"),paste0(path_P3,"neutdata-D300-chain2"),paste0(path_P3,"neutdata-D300-chain3"))
+mcmcpath_D600_P3 = c(paste0(path_P3,"neutdata-D600-chain1"),paste0(path_P3,"neutdata-D600-chain2"),paste0(path_P3,"neutdata-D600-chain3"))
+```
+
+```{r}
+make_eems_plots(mcmcpath_D600_P3, longlat = TRUE, dpi = 250, add_grid = FALSE,
+  col_grid = "#BBBBBB", add_demes = TRUE, col_demes = "#000000",
+  add_outline = TRUE, col_outline = "#BBBBBB", eems_colors = NULL,
+  prob_level = 0.9, m_colscale = NULL, q_colscale = NULL,
+  add_abline = FALSE)
+```
+
+```{r}
+# Older version of plotting eems results 
+eems.plots(mcmcpath_full_P3, plotpath = paste0(path_P3,"EEMS_neutdata_part3_outputs"),
+           longlat = T,add.grid=F,add.outline = T,add.demes = T,
+           projection.in = "+proj=longlat +datum=WGS84",projection.out = "+proj=merc +datum=WGS84",
+           add.map = T,add.abline = T, add.r.squared = T)
+```
+
+
+## Seascape Redundancy Analysis 
+
+### Loading necessary packages 
+
+```{r}
+# Load packages
+library(adegenet)
+library(poppr)
+library(dplyr)
+library(reshape2)
+library(ggplot2)
+library(vcfR)
+library(psych)
+library(adespatial)
+library(vegan)
+```
+
+### Prep Environmental Data
+
+```{r}
+# Import environmental data
+env.raw = strata_6pops[,3:16]
+```
+
+```{r}
+# Import spatial data
+dbmem.raw = read.csv("../dbmems_6pops.csv")
+```
+
+```{r}
+# Removing latitude and longitude
+env.data = subset(env.raw, select = -c(Latitude,Longitude))
+# pairs.panels(env.full_out6, scale = TRUE)
+```
+
+```{r}
+#standardize the environmental data 
+# Scale and center variables
+env.z <- decostand(env.data, method = "standardize")
+# Variables are now centered around a mean of 0
+round(apply(env.z, 2, mean), 1)
+# and scaled to have a standard deviation of 1
+apply(env.z, 2, sd)
+```
+
+```{r}
+#combine env and dbmem datasets 
+env.full = cbind(env.z, dbmem.raw)
+str(env.full)
+```
+
+### Prep allele frequency data
+
+```{r}
+# Explore data
+rad_neut.filt
+nLoc(rad_neut.filt) # number of loci
+nPop(rad_neut.filt) # number of sites
+nInd(rad_neut.filt) # number of individuals
+summary(rad_neut.filt$pop) # sample size
+
+# Calculate allele frequencies for each site
+allele_freqs_neut = data.frame(rraf(rad_neut.filt, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+
+# Keep only the first of the two alleles for each SNP (since p=1-q).
+allele_freqs_neut = allele_freqs_neut[, seq(1, dim(allele_freqs_neut)[2], 2)]
+
+# Export allele frequencies
+write.csv(allele_freqs_neut, file = "all_allele_freqs_neut.csv", row.names = TRUE)
+```
+
+**Minor allele frequencies**
+
+```{r}
+# Separate genind object by site
+site_list_neut = seppop(rad_neut.filt)
+names(site_list_neut)
+
+# Calculate the minor allele frequency for each site
+maf_list_neut = lapply(site_list_neut, FUN = minorAllele)
+
+# Convert list to dataframe
+maf_neut = as.data.frame(maf_list_neut) %>% t() %>% as.data.frame()
+
+# Export minor allele frequencies
+write.csv(maf_neut, file = "minor_allele_freqs_neut.csv", row.names = TRUE)
+```
+
+### Identify significant environmental predictors in RDA model
+
+```{r}
+# Set seed
+set.seed(123)
+```
+
+```{r}
+# Use forward selection to identify significant environmental variables with ordiR2step
+# first we need to create a null model and then a full model 
+## Null model
+RDA0_neut <- rda(allele_freqs_neut ~ 1,  env.full) 
+
+## full model
+RDA_neut <- rda(allele_freqs_neut ~ ., env.full)
+
+## adjusted R squared of full. model
+adjR2.RDA_neut <- RsquareAdj(RDA_neut)$adj.r.squared
+ 
+# Running ordiR2step to identify significant environmental variables in the model 
+mod_neut <- ordiR2step(RDA0_neut, scope = formula(RDA_neut), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r}
+# Use forward selection to identify significant environmental variables
+Y_neut = allele_freqs_neut
+X_neut = env.z
+env.for_neut = forward.sel(Y_neut, X_neut, alpha = TRUE)
+env.for_neut
+
+# Use forward selection to identify significant dbmems
+dbmem.for_neut = forward.sel(Y = allele_freqs_neut, X = dbmem.raw, alpha = TRUE)
+dbmem.for_neut
+```
+
+### Running the Redundancy analysis
+
+**Prepping for plotting** 
+
+```{r}
+# Create a data frame to correctly color regions
+# Row names are the same across all allele frequency data sets  
+col_dframe = data.frame("site" = rownames(allele_freqs_neut))
+
+# Function to add regional labels to dataframe
+addregion_6pops = function(x){
+  # If pop label is present function will output the region
+  if(x=="BAR") y = " Barrington "
+  if(x=="BIS") y = " Bissel Cove "
+  if(x=="GB") y = " Greenwich Bay "
+  if(x=="KIC") y = " Kickemuit "
+  if(x=="MCD") y = " Donovan Marsh "
+  if(x=="PVD") y = " Providence "
+  return(y)
+}
+
+# Add regional labels
+col_dframe$region = sapply(col_dframe$site, addregion_6pops)
+
+# Add factor levels
+region_order_6pops = c(" Barrington "," Bissel Cove "," Greenwich Bay "," Kickemuit "," Donovan Marsh ", " Providence ")
+col_dframe$region = factor(col_dframe$region, levels = region_order_6pops)
+```
+
+```{r}
+# Create color scheme
+# green=#7FC97F, blue = #00008B, orange=#FF7F00, purple=#9A32CD, pink=#FF1493, cyan=#00FFFF
+cols_6pops = c("#7FC97F","#00008B","#FF7F00","#9A32CD","#FF1493","#00FFFF")
+```
+
+
+**Running RDA and plotting** 
+
+```{r}
+# Perform RDA with all significant variables
+rda_neut = rda(allele_freqs_neut ~ June_Salinity_Min, data = env.full, scale = TRUE)
+rda_neut
+
+# Model summaries
+RsquareAdj(rda_neut) # adjusted Rsquared 
+vif.cca(rda_neut) # variance inflation factor (<10 OK)
+anova.cca(rda_neut, permutations = 1000) # full model
+anova.cca(rda_neut, permutations = 1000, by="margin") # per variable 
+
+# Variance explained by each canonical axis
+summary(eigenvals(rda_neut, model = "constrained"))
+screeplot(rda_neut)
+```
+
+```{r}
+# Visualize results of RDA
+#png("rda_neut.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda_neut, type="n", scaling = 3)
+# SITES
+points(rda_neut, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(rda_neut, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda_neut, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda_neut, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda_neut)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 0.5)
+# dev.off()
+```
+
+### Partial redundancy analysis - controlling for geographic location
+
+```{r}
+# Perform RDA while controlling for geographical location
+pRDA_neut = rda(allele_freqs_neut ~ June_Salinity_Min + Condition(MEM1 + MEM2),
+           data = env.full, scale = TRUE)
+pRDA_neut
+RsquareAdj(pRDA_neut) # adjusted Rsquared 
+vif.cca(pRDA_neut) # variance inflation factor (<10 OK)
+anova.cca(pRDA_neut, permutations = 1000) # full model
+anova.cca(pRDA_neut, permutations = 1000, by = "margin") # per variable
+
+# Variance explained by each canonical axis
+summary(eigenvals(pRDA_neut, model = "constrained"))
+screeplot(pRDA_neut)
+```
+
+```{r}
+# Visualise results of pRDA
+#png("partial_rda_neut.png", width = 9, height = 7, units = "in", res = 600)
+plot(pRDA_neut, type="n", scaling = 3)
+#title("Seascape partial redundancy analysis")
+# SITES
+points(pRDA_neut, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(pRDA_neut, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(pRDA_neut, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(pRDA, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("topleft", legend=levels(col_dframe_out6$region), bty="n", col="black",
+       #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(pRDA_neut)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 0.5)
+#dev.off()
+```
+
+### Identify candidate SNPs involved in local adaptation
+
+We’ll use the loadings of the SNPs in the ordination space to determine which SNPs are candidates for local adaptation. The SNP loadings are stored as species in the RDA object.
+
+```{r}
+# Save loadings from RDA
+loadings_neut <- scores(rda_neut, display = "species")
+```
+
+If we look at histograms of the loadings on each RDA axis, we can see their (relatively normal) distributions. SNPs loading at the center of the distribution are not showing a relationship with the environmental predictors; those loading in the tails are, and are more likely to be under selection as a function of those predictors (or some other predictor correlated with them).
+
+```{r}
+hist(loadings_neut[,1], main="Loadings on RDA1")
+```
+
+I'm going to use the function from the tutorial to identify the SNPs that fneut within the tails of the distribution. I'm going to choose a standard deviation of 2 (p-value=0.0455). I had played around with high values, which appear to be too conservative for this data set. Patterns of selection are likely weaker in this system, so I'd like to try and capture more loci putatively under selection. 
+
+```{r}
+outliers <- function(x,z){
+  lims <- mean(x) + c(-1, 1) * z * sd(x)     # find loadings +/-z sd from mean loading     
+  x[x < lims[1] | x > lims[2]]               # locus names in these tails
+}
+```
+
+```{r}
+cand1_fullneut <- outliers(loadings_neut[,1],2)
+
+ncand_fullneut <- length(cand1_fullneut)
+ncand_fullneut
+```
+
+There's clearly quite a lot of candiate loci associated with minimum salinity. I'm going to save these and extract them from the set of neutral SNPs.
+
+```{r}
+cand1_all_fullneut <- cbind.data.frame(rep(1,times=length(cand1_fullneut)), names(cand1_fullneut), unname(cand1_fullneut))
+#cand2_all <- cbind.data.frame(rep(2,times=length(cand2)), names(cand2), unname(cand2))
+
+colnames(cand1_all_fullneut) <- c("axis","snp","loading")
+
+cand_fullneut <- rbind(cand1_all_fullneut)
+cand_fullneut$snp <- as.character(cand_fullneut$snp)
+```
+
+```{r}
+# Checking for any repeats 
+length(cand_fullneut$snp[duplicated(cand_fullneut$snp)])
+```
+
+```{r}
+library(dplyr)
+```
+
+```{r}
+rda_outliers_sal_min_fullneut <- cand_fullneut %>%
+  extract(snp, c("chrom", "pos", "allele"), "(NC_\\d+)_1_(\\d+).(\\d)") %>%
+  mutate(
+    chrom = paste0(chrom, ".1"),
+    pos = as.integer(pos)
+  ) %>%
+  dplyr::select(chrom, pos)
+```
+
+```{r}
+write.table(rda_outliers_sal_min_fullneut, "outliers_rda_fullneut.loci.txt", sep="\t", row.names=FALSE, col.names = FALSE, quote=FALSE)
+```
+
+In terminal, I'm going to remove these outliers from the set of neutral SNPs using vcftools. Then I'll run the RDA again to see if the association with environment is reduced. 
+
+```
+$ vcftools --vcf neutralloci.recode.vcf --exclude-positions outliers_rda_fullneut.loci.txt --recode --recode-INFO-all --out fullneut_norda
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+After filtering, kept 22484 out of a possible 22804 Sites
+Run Time = 6.00 seconds
+```
+
+```{r}
+# VCF file with Neutral SNPs 
+my_vcf_fullneut_norda <- read.vcfR("fullneut_norda.recode.vcf")
+```
+
+```{r}
+rad_fullneut_norda.filt <- vcfR2genind(my_vcf_fullneut_norda, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+
+rad_fullneut_norda.filt
+```
+
+```{r}
+# Explore data
+rad_fullneut_norda.filt
+nLoc(rad_fullneut_norda.filt) # number of loci
+nPop(rad_fullneut_norda.filt) # number of sites
+nInd(rad_fullneut_norda.filt) # number of individuals
+summary(rad_fullneut_norda.filt$pop) # sample size
+
+# Calculate allele frequencies for each site
+allele_freqs_fullneut_norda = data.frame(rraf(rad_fullneut_norda.filt, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+
+# Keep only the first of the two alleles for each SNP (since p=1-q).
+allele_freqs_fullneut_norda = allele_freqs_fullneut_norda[, seq(1, dim(allele_freqs_fullneut_norda)[2], 2)]
+
+# Export allele frequencies
+write.csv(allele_freqs_fullneut_norda, file = "all_allele_freqs_fullneut_norda.csv", row.names = TRUE)
+```
+
+**Minor allele frequencies**
+
+```{r}
+# Separate genind object by site
+site_list_fullneut_norda = seppop(rad_fullneut_norda.filt)
+names(site_list_fullneut_norda)
+
+# Calculate the minor allele frequency for each site
+maf_list_fullneut_norda = lapply(site_list_fullneut_norda, FUN = minorAllele)
+
+# Convert list to dataframe
+maf_fullneut_norda = as.data.frame(maf_list_fullneut_norda) %>% t() %>% as.data.frame()
+
+# Export minor allele frequencies
+write.csv(maf_fullneut_norda, file = "minor_allele_freqs_fullneut_norda.csv", row.names = TRUE)
+```
+
+### Identify significant environmental predictors in RDA model
+
+```{r}
+# Set seed
+set.seed(123)
+```
+
+```{r}
+# Use forward selection to identify significant environmental variables with ordiR2step
+# first we need to create a null model and then a full model 
+## Null model
+RDA0_fullneut_norda <- rda(allele_freqs_fullneut_norda ~ 1,  env.full) 
+
+## full model
+RDA_fullneut_norda <- rda(allele_freqs_fullneut_norda ~ ., env.full)
+
+## adjusted R squared of full. model
+adjR2.RDA_fullneut_norda <- RsquareAdj(RDA_fullneut_norda)$adj.r.squared
+ 
+# Running ordiR2step to identify significant environmental variables in the model 
+mod_fullneut_norda <- ordiR2step(RDA0_fullneut_norda, scope = formula(RDA_fullneut_norda), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r}
+# Use forward selection to identify significant environmental variables
+Y_fullneut_norda = allele_freqs_fullneut_norda
+X_fullneut_norda = env.z
+env.for_fullneut_norda = forward.sel(Y_fullneut_norda, X_fullneut_norda, alpha = TRUE)
+env.for_fullneut_norda
+
+# Use forward selection to identify significant dbmems
+dbmem.for_fullneut_norda = forward.sel(Y = allele_freqs_fullneut_norda, X = dbmem.raw, alpha = TRUE)
+dbmem.for_fullneut_norda
+```
+
+
+Now, I'm going to remove the inversions from the set of neutral SNPs using vcftools. Then I'll run the RDA again to see if there's any association with environment. 
+
+```
+$ vcftools --vcf fullneut_norda.recode.vcf --exclude-bed Detected_large_inversions.bed --recode --recode-INFO-all --out neut_norda_noinvert
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+After filtering, kept 20743 out of a possible 22484 Sites
+Run Time = 6.00 seconds
+```
+
+```{r}
+# VCF file with Neutral SNPs 
+my_vcf_neut_norda_noinvert <- read.vcfR("neut_norda_noinvert.recode.vcf")
+```
+
+```{r}
+rad_neut_norda_noinvert.filt <- vcfR2genind(my_vcf_neut_norda_noinvert, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+
+rad_neut_norda_noinvert.filt
+```
+
+```{r}
+# Explore data
+rad_neut_norda_noinvert.filt
+nLoc(rad_neut_norda_noinvert.filt) # number of loci
+nPop(rad_neut_norda_noinvert.filt) # number of sites
+nInd(rad_neut_norda_noinvert.filt) # number of individuals
+summary(rad_neut_norda_noinvert.filt$pop) # sample size
+
+# Calculate allele frequencies for each site
+allele_freqs_neut_norda_noinvert = data.frame(rraf(rad_neut_norda_noinvert.filt, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+
+# Keep only the first of the two alleles for each SNP (since p=1-q).
+allele_freqs_neut_norda_noinvert = allele_freqs_neut_norda_noinvert[, seq(1, dim(allele_freqs_neut_norda_noinvert)[2], 2)]
+
+# Export allele frequencies
+write.csv(allele_freqs_neut_norda_noinvert, file = "all_allele_freqs_neut_norda_noinvert.csv", row.names = TRUE)
+```
+
+**Minor allele frequencies**
+
+```{r}
+# Separate genind object by site
+site_list_neut_norda_noinvert = seppop(rad_neut_norda_noinvert.filt)
+names(site_list_neut_norda_noinvert)
+
+# Calculate the minor allele frequency for each site
+maf_list_neut_norda_noinvert = lapply(site_list_neut_norda_noinvert, FUN = minorAllele)
+
+# Convert list to dataframe
+maf_neut_norda_noinvert = as.data.frame(maf_list_neut_norda_noinvert) %>% t() %>% as.data.frame()
+
+# Export minor allele frequencies
+write.csv(maf_neut_norda_noinvert, file = "minor_allele_freqs_neut_norda_noinvert.csv", row.names = TRUE)
+```
+
+### Identify significant environmental predictors in RDA model
+
+```{r}
+# Set seed
+set.seed(123)
+```
+
+```{r}
+# Use forward selection to identify significant environmental variables with ordiR2step
+# first we need to create a null model and then a full model 
+## Null model
+RDA0_neut_norda_noinvert <- rda(allele_freqs_neut_norda_noinvert ~ 1,  env.full) 
+
+## full model
+RDA_neut_norda_noinvert <- rda(allele_freqs_neut_norda_noinvert ~ ., env.full)
+
+## adjusted R squared of full. model
+adjR2.RDA_neut_norda_noinvert <- RsquareAdj(RDA_neut_norda_noinvert)$adj.r.squared
+ 
+# Running ordiR2step to identify significant environmental variables in the model 
+mod_neut_norda_noinvert <- ordiR2step(RDA0_neut_norda_noinvert, scope = formula(RDA_neut_norda_noinvert), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r}
+# Use forward selection to identify significant environmental variables
+Y_neut_norda_noinvert = allele_freqs_neut_norda_noinvert
+X_neut_norda_noinvert = env.z
+env.for_neut_norda_noinvert = forward.sel(Y_neut_norda_noinvert, X_neut_norda_noinvert, alpha = 0.05)
+env.for_neut_norda_noinvert
+
+# Use forward selection to identify significant dbmems
+dbmem.for_neut_norda_noinvert = forward.sel(Y = allele_freqs_neut_norda_noinvert, X = dbmem.raw, alpha = TRUE)
+dbmem.for_neut_norda_noinvert
+```
+
+There is not significant association with environmental predictor variables (at p of 0.05). I'm going to repeat the pop gen analyses.
+
+```{r}
+info_neut_norda_noinvert <- as.data.frame(read.table("../strata6_red_12var",header = T,sep = "\t",stringsAsFactors = F))
+mystrats_neut_norda_noinvert <- as.data.frame(matrix(nrow = length(indNames(rad_neut_norda_noinvert.filt)),ncol=16))
+just_neut_norda_noinvert.strats <- dplyr::select(info_neut_norda_noinvert,c("Population"))
+stratted_neut_norda_noinvert.filt <- strata(rad_neut_norda_noinvert.filt, formula= Population, combine = TRUE,just_neut_norda_noinvert.strats)
+stratted_neut_norda_noinvert.filt@other <- info_neut_norda_noinvert[,3:17]
+
+stratted_neut_norda_noinvert.filt
+```
+
+**Make hierfstat object**
+
+```{r}
+hf_neut_norda_noinvert.filt <- genind2hierfstat(rad_neut_norda_noinvert.filt, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+```
+
+
+## Pairwise Fst of neut_norda_noinvertral SNPs 
+
+```{r}
+fst_neut_norda_noinvert.mat <- pairwise.WCfst(hf_neut_norda_noinvert.filt)
+```
+
+```{r}
+# get bootstrap confidence values for Fst
+boot_neut_norda_noinvert_fst <- boot.ppfst(hf_neut_norda_noinvert.filt,nboot = 1000)
+boot5_neut_norda_noinvert_fst <- boot.ppfst(hf_neut_norda_noinvert.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+Fst_neut_norda_noinvert_ll <- boot5_neut_norda_noinvert_fst$ll
+```
+
+```{r}
+gindF_neut_norda_noinvert.fst.mat.triN <- as.matrix(fst_neut_norda_noinvert.mat)
+colnames(gindF_neut_norda_noinvert.fst.mat.triN) <- pop_order_6pops
+rownames(gindF_neut_norda_noinvert.fst.mat.triN) <- pop_order_6pops
+```
+
+```{r}
+meltedN_neut_norda_noinvert <- reshape2::melt(gindF_neut_norda_noinvert.fst.mat.triN, na.rm =TRUE)
+round(gindF_neut_norda_noinvert.fst.mat.triN,4)
+```
+
+```{r}
+summary(meltedN_neut_norda_noinvert$value)
+```
+
+```{r}
+#Plotting Pairwise fst
+neut_norda_noinvert <- ggplot(data = meltedN_neut_norda_noinvert, aes(Var2, Var1, fill = value))+ geom_tile(color = "white")+ 
+  scale_fill_gradient(low = "white", high = "chocolate1", name="FST")  +
+  ggtitle(expression(atop("Pairwise FST, WC (1984) neut_norda_noinvertral SNPs for 6 Populations", atop(italic("N = 60, L = 22,743"), ""))))+
+  labs( x = "Sampling Site", y = "Sampling Site") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),axis.text.y = element_text(size = 12)) + 
+  theme(axis.title = element_text(size = 12),legend.text = element_text(size =14), legend.title = element_text(size =14)) +
+  theme(plot.title = element_text(size = 14)) +
+coord_fixed()
+neut_norda_noinvert
+```
+
+```{r}
+library("PCAviz")  #Visualizing output of PCA
+library("cowplot") #Used with PCAviz
+```
+
+```{r}
+# Create color scheme
+# green=#7FC97F, blue = #00008B, orange=#FF7F00, purple=#9A32CD, pink=#FF1493, cyan=#00FFFF
+cols_6pops = c("#7FC97F","#00008B","#FF7F00","#9A32CD","#FF1493","#00FFFF")
+```
+
+```{r}
+# Plot a PCA for the neut_norda_noinvertral loci
+x_neut_norda_noinvert <- scaleGen(rad_neut_norda_noinvert.filt, NA.method = "mean")
+neut_norda_noinvert_pca <- dudi.pca(x_neut_norda_noinvert, center = FALSE, scale = FALSE, scannf = FALSE, nf = 4)
+eig_percent_neut_norda_noinvert <- round((neut_norda_noinvert_pca$eig / (sum(neut_norda_noinvert_pca$eig))) * 100, 2)
+
+pca_dat_neut_norda_noinvert <- as.data.frame(neut_norda_noinvert_pca$li) %>%
+                    rownames_to_column(var = "ind") %>%
+                    cbind(pop = pop(rad_neut_norda_noinvert.filt)) %>%
+                    mutate(pop = factor(pop, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD")))
+
+
+ggplot(data = pca_dat_neut_norda_noinvert) +
+    geom_point(aes(x = Axis1, y = Axis2, colour = pop), size = 3, alpha = 0.8) +
+    scale_colour_manual(values = cols_6pops) +
+    theme_minimal() +
+    labs(x = paste("", "Axis 1: ", eig_percent_neut_norda_noinvert[1], "%"), y = paste("", "Axis 2: ", eig_percent_neut_norda_noinvert[2], "%")) +
+    coord_fixed(ratio = 1)
+```
+
+## Genetic diversity (observed and expected heterozygosity)
+
+```{r}
+comb_neut_norda_noinvert <- summary(stratted_neut_norda_noinvert.filt)
+names(stratted_neut_norda_noinvert.filt)
+```
+
+```{r}
+plot(comb_neut_norda_noinvert$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+```
+
+```{r}
+plot(comb_neut_norda_noinvert$Hobs,comb_neut_norda_noinvert$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+```
+
+```{r}
+bartlett.test(list(comb_neut_norda_noinvert$Hexp, comb_neut_norda_noinvert$Hobs)) # a test : H0: Hexp = Hobs
+```
+
+**_Significant difference between Observed and expected heterozygosity_**.  
+
+```{r}
+basicstat_neut_norda_noinvert <- basic.stats(hf_neut_norda_noinvert.filt, diploid = TRUE, digits = 3)
+```
+
+```{r}
+as.data.frame(basicstat_neut_norda_noinvert$overall)
+```
+
+```{r}
+# get bootstrap confidence values for Fis
+boot_neut_norda_noinvert <- boot.ppfis(hf_neut_norda_noinvert.filt,nboot = 1000)
+boot5_neut_norda_noinvert <- boot.ppfis(hf_neut_norda_noinvert.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+# combine all pop statistics
+colnames(basicstat_neut_norda_noinvert$Ho) <- pop_order_6pops
+Ho_neut_norda_noinvert <- colMeans(basicstat_neut_norda_noinvert$Ho,na.rm = T)
+He_neut_norda_noinvert <- colMeans(basicstat_neut_norda_noinvert$Hs,na.rm = T)
+Fis_neut_norda_noinvert <- boot5_neut_norda_noinvert$fis.ci$ll
+y_neut_norda_noinvert <- cbind(pop_order_6pops,Ho_neut_norda_noinvert,He_neut_norda_noinvert, Fis_neut_norda_noinvert, strata_6pops[,3:17])
+```
+
+```{r}
+summary(He_neut_norda_noinvert)
+```
+
+```{r}
+summary(Fis_neut_norda_noinvert)
+```
+
+Plotting F statistics versus each environmental variables (including lat and long)
+
+This can be modified for each F statistic (He, Ho, Fis) - just make sure to change the title in the function. 
+
+```{r}
+# Function to generate and display plots for all environmental variables
+generate_plots <- function(data, response_var, env_vars, pop_order_var) {
+  # Define color scheme
+  color_scheme <- c("#7FC97F","#00008B","#FF7F00","#9A32CD","#FF1493","#00FFFF")
+  
+  for (env_var in env_vars) {
+    # Ensure variable names are valid
+    if (!all(c(response_var, env_var, pop_order_var) %in% colnames(data))) {
+      cat("Skipping variable", env_var, "as it is not found in the data\n")
+      next
+    }
+    
+    # Remove rows with missing values in the relevant columns
+    subset_data <- data[complete.cases(data[, c(response_var, env_var, pop_order_var)]), ]
+    
+    # Calculate R² value
+    formula <- as.formula(paste(response_var, "~", env_var))
+    R2_value <- round(summary(lm(formula, data = subset_data))$r.squared, 8)
+    
+    # Generate plot title
+    plot_title <- paste("Observed Heterozygosity vs", env_var, ", neut_norda_noinvertral SNPs 6 pops")
+    
+    # Generate plot
+    p <- ggplot(subset_data, aes_string(x = env_var, y = response_var)) + 
+      geom_point(aes_string(color = pop_order_var), shape = 16, size = 3) + 
+      scale_color_manual(values = color_scheme) +
+      geom_smooth(method = "lm", color = "black") + 
+      ggtitle(plot_title) +
+      annotate(geom = "text", label = paste("italic(R^2)==", R2_value), x = Inf, y = Inf, hjust = 1.1, vjust = 2, parse = TRUE) +
+      scale_x_continuous() +
+      theme_bw() +
+      theme(legend.title = element_blank(),
+            plot.title = element_text(hjust = 0.5))
+    
+    # Print the plot
+    print(p)
+    
+    cat("Generated plot for", env_var, "\n")
+  }
+}
+```
+
+```{r}
+generate_plots(y_neut_norda_noinvert, "Ho_neut_norda_noinvert", colnames(y_neut_norda_noinvert)[5:19], "pop_order_6pops")
+```
+
+```{r}
+generate_plots(y_neut_norda_noinvert, "He_neut_norda_noinvert", colnames(y_neut_norda_noinvert)[5:19], "pop_order_6pops")
+```
+
+## Correspondence analysis-based RDA
+
+```{r}
+# Run a CA on the genind object
+obj_neut <- genind2genpop(rad_neut.filt)
+ca1_neut <- dudi.coa(tab(obj_neut), scannf=FALSE, nf=10)
+eig_ca1_neut <- round((ca1_neut$eig / (sum(ca1_neut$eig))) * 100, 2)
+out_ca_neut <- ca1_neut$li[,1:2]
+rownames(out_ca_neut) <- popNames(rad_neut.filt)
+```
+
+```{r}
+out_ca_neut <- out_ca_neut %>%
+  rownames_to_column(var = "Population") %>%
+  mutate(Population = factor(Population, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  dplyr::select(Population, Axis1, Axis2)
+```
+
+```{r}
+strata_ca_neut <- strata_6pops %>%
+  left_join(out_ca_neut, by = "Population")
+```
+
+```{r}
+# Plot the CA
+ggplot(strata_ca_neut, aes(x = Axis1, y = Axis2, colour = Population)) +
+  geom_point(size = 6, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops,
+                      name = "") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14)) +
+  labs(x = paste("", "Axis 1: ", eig_ca1_neut[1], "%"), y = paste("", "Axis 2: ", eig_ca1_neut[2], "%"))
+```
+
+```{r}
+# Plot CA1 versus pH_Avg 
+strata_ca_neut %>%
+  ggplot(aes(x = Axis1, y = pH_Avg)) +
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 4) +
+  scale_color_manual(values = cols_6pops) +
+  theme_minimal() +
+  labs(
+       x = "CA1",
+       y = "Average pH")
+```
+
+```{r}
+# Linear model for CA1 versus June Salinity Min 
+pH_mod <- lm(Axis1 ~ pH_Avg, data = strata_ca_neut)
+summary(sal_mod)
+```
+
+```{r}
+# Linear model for CA1 versus June Salinity Min accounting for geographic location
+ph_mod_geo <- lm(Axis1 ~ pH_Avg + Latitude + Longitude, data = strata_ca_neut)
+summary(ph_mod_geo)
+```
+
+```{r}
+# Plot CA2 versus pH Avg 
+strata_ca_neut %>%
+  ggplot(aes(x = Axis2, y = pH_Avg)) +
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 4) +
+  scale_color_manual(values = cols_6pops) +
+  theme_minimal() +
+  labs(
+       x = "CA2",
+       y = "Average pH")
+```
+
+```{r}
+# Linear model for CA2 versus June Salinity Min 
+ph_mod_ca2 <- lm(Axis2 ~ pH_Avg, data = strata_ca_neut)
+summary(ph_mod_ca2)
+```
+
+```{r}
+# Linear model for CA2 versus June Salinity Min accounting for geographic location
+sal_mod_ca2_geo <- lm(Axis2 ~ June_Salinity_Min + Latitude + Longitude, data = strata_ca_neut)
+summary(sal_mod_ca2_geo)
+```
+
+## Classification of neutral SNPs 
+
+First checking for outlier SNPs that are exons and inside genes. The eastern oyster genome (haplotig masked) has bed files containing locations of exons, genes, and coding sequences. I pulled these bed files from [J. Green's Github](https://github.com/madmolecularman/EecSeq_obj1a/tree/main/Bioinformatics/cvir_genome). 
+
+```
+$ wget https://raw.githubusercontent.com/madmolecularman/EecSeq_obj1a/refs/heads/main/Bioinformatics/cvir_genome/sorted.ref3.0.exon.sc.hmask.bed
+```
+
+I'm going to use vcftools to parse out the neutral SNPs that are in exon, gene, and coding sequence regions. 
+
+17,118 SNPs in exon regions; 20,831 SNPs in gene regions; 11,352 SNPs in coding sequences 
+
+```
+# VCF file containing all exon regions
+$ vcftools --vcf neutralloci6p9g9_red.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.exon.sc.hmask.bed --out neutral_exon
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 280262 BED file entries.
+After filtering, kept 17118 out of a possible 22804 Sites
+Run Time = 7.00 seconds
+```
+
+```
+# VCF file containing all gene regions
+$ vcftools --vcf neutralloci6p9g9_red.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.gene.sc.hmask.bed --out neutral_gene
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 29051 BED file entries.
+After filtering, kept 20831 out of a possible 22804 Sites
+Run Time = 4.00 seconds
+```
+
+```
+# VCF file containing all coding sequences 
+$ vcftools --vcf neutralloci6p9g9_red.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.CDS.sc.hmask.bed --out neutral_CDS
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 244617 BED file entries.
+After filtering, kept 11352 out of a possible 22804 Sites
+Run Time = 6.00 seconds
+```
+
+
+## Repeating everything for the neutral SNPs with inversions removed:
+
+## Making files
+
+```{r}
+# Setting up strata file - population info and environmental data 
+strata6 <- read.table("../strata6_red_12var", header=TRUE)
+
+# Making new version of strata file with one row per population
+strata_6pops <- strata6 %>% distinct(Population, .keep_all = TRUE)
+```
+
+```{r}
+#Providing population names for plotting
+pop_order_6pops <- c("BAR","BIS","GB","KIC","MCD","PVD")
+```
+
+**Make genind object**
+
+```{r}
+# VCF file with Neutral SNPs where inversions are removed
+my_vcf_neut_noinvert <- read.vcfR("neutralloci_noinversion.recode.vcf")
+```
+
+```{r}
+rad_neut_noinvert.filt <- vcfR2genind(my_vcf_neut_noinvert, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+
+rad_neut_noinvert.filt
+```
+
+```{r}
+info_neut_noinvert <- as.data.frame(read.table("../strata6_red_12var",header = T,sep = "\t",stringsAsFactors = F))
+mystrats_neut_noinvert <- as.data.frame(matrix(nrow = length(indNames(rad_neut_noinvert.filt)),ncol=16))
+just_neut_noinvert.strats <- dplyr::select(info_neut_noinvert,c("Population"))
+stratted_neut_noinvert.filt <- strata(rad_neut_noinvert.filt, formula= Population, combine = TRUE,just_neut_noinvert.strats)
+stratted_neut_noinvert.filt@other <- info_neut_noinvert[,3:16]
+
+stratted_neut_noinvert.filt
+```
+
+**Make hierfstat object**
+
+```{r}
+hf_neut_noinvert.filt <- genind2hierfstat(rad_neut_noinvert.filt, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+```
+
+
+## Seascape Redundancy Analysis 
+
+### Loading necessary packages 
+
+```{r}
+# Load packages
+library(adegenet)
+library(poppr)
+library(dplyr)
+library(reshape2)
+library(ggplot2)
+library(vcfR)
+library(psych)
+library(adespatial)
+library(vegan)
+```
+
+### Prep allele frequency data
+
+```{r}
+# Explore data
+rad_neut_noinvert.filt
+nLoc(rad_neut_noinvert.filt) # number of loci
+nPop(rad_neut_noinvert.filt) # number of sites
+nInd(rad_neut_noinvert.filt) # number of individuals
+summary(rad_neut_noinvert.filt$pop) # sample size
+
+# Calculate allele frequencies for each site
+allele_freqs_neut_noinvert = data.frame(rraf(rad_neut_noinvert.filt, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+
+# Keep only the first of the two alleles for each SNP (since p=1-q).
+allele_freqs_neut_noinvert = allele_freqs_neut_noinvert[, seq(1, dim(allele_freqs_neut_noinvert)[2], 2)]
+
+# Export allele frequencies
+write.csv(allele_freqs_neut_noinvert, file = "all_allele_freqs_neut_noinvert.csv", row.names = TRUE)
+```
+
+**Minor allele frequencies**
+
+```{r}
+# Separate genind object by site
+site_list_neut_noinvert = seppop(rad_neut_noinvert.filt)
+names(site_list_neut_noinvert)
+
+# Calculate the minor allele frequency for each site
+maf_list_neut_noinvert = lapply(site_list_neut_noinvert, FUN = minorAllele)
+
+# Convert list to dataframe
+maf_neut_noinvert = as.data.frame(maf_list_neut_noinvert) %>% t() %>% as.data.frame()
+
+# Export minor allele frequencies
+write.csv(maf_neut_noinvert, file = "minor_allele_freqs_neut_noinvert.csv", row.names = TRUE)
+```
+
+### Identify significant environmental predictors in RDA model
+
+```{r}
+# Set seed
+set.seed(123)
+```
+
+```{r}
+# Use forward selection to identify significant environmental variables with ordiR2step
+# first we need to create a null model and then a full model 
+## Null model
+RDA0_neut_noinvert <- rda(allele_freqs_neut_noinvert ~ 1,  env.z) 
+
+## full model
+RDA_neut_noinvert <- rda(allele_freqs_neut_noinvert ~ ., env.z)
+
+## adjusted R squared of full. model
+adjR2.RDA_neut_noinvert <- RsquareAdj(RDA_neut_noinvert)$adj.r.squared
+ 
+# Running ordiR2step to identify significant environmental variables in the model 
+mod_neut_noinvert <- ordiR2step(RDA0_neut_noinvert, scope = formula(RDA_neut_noinvert), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+
+```{r}
+# Use forward selection to identify significant environmental variables
+Y_neut_noinvert = allele_freqs_neut_noinvert
+X_neut_noinvert = env.z
+env.for_neut_noinvert = forward.sel(Y_neut_noinvert, X_neut_noinvert, alpha = TRUE)
+env.for_neut_noinvert
+
+# Use forward selection to identify significant dbmems
+dbmem.for_neut_noinvert = forward.sel(Y = allele_freqs_neut_noinvert, X = dbmem.raw, alpha = TRUE)
+dbmem.for_neut_noinvert
+```
+
+### Running the Redundancy analysis
+
+**Prepping for plotting** 
+
+```{r}
+# Create a data frame to correctly color regions
+# Row names are the same across all allele frequency data sets  
+col_dframe = data.frame("site" = rownames(allele_freqs_neut_noinvert))
+
+# Function to add regional labels to dataframe
+addregion_6pops = function(x){
+  # If pop label is present function will output the region
+  if(x=="BAR") y = " Barrington "
+  if(x=="BIS") y = " Bissel Cove "
+  if(x=="GB") y = " Greenwich Bay "
+  if(x=="KIC") y = " Kickemuit "
+  if(x=="MCD") y = " Donovan Marsh "
+  if(x=="PVD") y = " Providence "
+  return(y)
+}
+
+# Add regional labels
+col_dframe$region = sapply(col_dframe$site, addregion_6pops)
+
+# Add factor levels
+region_order_6pops = c(" Barrington "," Bissel Cove "," Greenwich Bay "," Kickemuit "," Donovan Marsh ", " Providence ")
+col_dframe$region = factor(col_dframe$region, levels = region_order_6pops)
+```
+
+```{r}
+# Create color scheme
+# green=#7FC97F, blue = #00008B, orange=#FF7F00, purple=#9A32CD, pink=#FF1493, cyan=#00FFFF
+cols_6pops = c("#7FC97F","#00008B","#FF7F00","#9A32CD","#FF1493","#00FFFF")
+```
+
+
+**Running RDA and plotting** 
+
+```{r}
+# Perform RDA with all significant variables
+rda_neut_noinvert = rda(allele_freqs_neut_noinvert ~ June_Salinity_Min, data = env.z, scale = TRUE)
+rda_neut_noinvert
+
+# Model summaries
+RsquareAdj(rda_neut_noinvert) # adjusted Rsquared 
+vif.cca(rda_neut_noinvert) # variance inflation factor (<10 OK)
+anova.cca(rda_neut_noinvert, permutations = 1000) # full model
+anova.cca(rda_neut_noinvert, permutations = 1000, by="margin") # per variable 
+
+# Variance explained by each canonical axis
+summary(eigenvals(rda_neut_noinvert, model = "constrained"))
+screeplot(rda_neut_noinvert)
+```
+
+```{r}
+# Visualize results of RDA
+#png("rda_neut_noinvert.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda_neut_noinvert, type="n", scaling = 3)
+# SITES
+points(rda_neut_noinvert, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(rda_neut_noinvert, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda_neut_noinvert, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda_neut_noinvert, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda_neut_noinvert)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 0.5)
+# dev.off()
+```
+
+## Correspondence analysis-based RDA
+
+```{r}
+# Run a CA on the genind object
+obj_neut_noinvert <- genind2genpop(rad_neut_noinvert.filt)
+ca1_neut_noinvert <- dudi.coa(obj_neut_noinvert, scannf=FALSE, nf=10)
+eig_ca1_neut_noinvert <- round((ca1_neut_noinvert$eig / (sum(ca1_neut_noinvert$eig))) * 100, 2)
+out_ca_neut_noinvert <- ca1_neut_noinvert$li[,1:2]
+rownames(out_ca_neut_noinvert) <- popNames(rad_neut_noinvert.filt)
+```
+
+```{r}
+out_ca_neut_noinvert <- out_ca_neut_noinvert %>%
+  rownames_to_column(var = "Population") %>%
+  mutate(Population = factor(Population, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  dplyr::select(Population, Axis1, Axis2)
+```
+
+```{r}
+strata_ca_neut_noinvert <- strata_6pops %>%
+  left_join(out_ca_neut_noinvert, by = "Population")
+```
+
+```{r}
+# Plot the CA
+ggplot(strata_ca_neut_noinvert, aes(x = Axis1, y = Axis2, colour = Population)) +
+  geom_point(size = 6, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops,
+                      name = "") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14)) +
+  labs(x = paste("", "Axis 1: ", eig_ca1_neut_noinvert[1], "%"), y = paste("", "Axis 2: ", eig_ca1_neut_noinvert[2], "%"))
+```
+
+```{r}
+# Plot CA1 versus June Salinity Min 
+strata_ca_neut_noinvert %>%
+  ggplot(aes(x = Axis1, y = June_Salinity_Min)) +
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 4) +
+  scale_color_manual(values = cols_6pops) +
+  theme_minimal() +
+  labs(
+       x = "CA1",
+       y = "Minimum Salinity")
+```
+
+```{r}
+# Linear model for CA1 versus June Salinity Min 
+sal_mod <- lm(Axis1 ~ June_Salinity_Min, data = strata_ca_neut_noinvert)
+summary(sal_mod)
+```
+
+
+There's clearly a strong relationship between the neutral SNPs and this minimum salinity variable. I'm going to check to see if and which loci are strongly associated wih this predictor variable, as it's likely they are outliers that were not captured from the other outlier detection programs.
+
+### Identify candidate SNPs involved in local adaptation
+
+We’ll use the loadings of the SNPs in the ordination space to determine which SNPs are candidates for local adaptation. The SNP loadings are stored as species in the RDA object.
+
+```{r}
+# Save loadings from RDA
+loadings_neut_noinvert <- scores(rda_neut_noinvert, display = "species")
+```
+
+If we look at histograms of the loadings on each RDA axis, we can see their (relatively normal) distributions. SNPs loading at the center of the distribution are not showing a relationship with the environmental predictors; those loading in the tails are, and are more likely to be under selection as a function of those predictors (or some other predictor correlated with them).
+
+```{r}
+hist(loadings_neut_noinvert[,1], main="Loadings on RDA1")
+```
+
+I'm going to use the function from the tutorial to identify the SNPs that fneut_noinvert within the tails of the distribution. I'm going to choose a standard deviation of 2 (p-value=0.0455). I had played around with high values, which appear to be too conservative for this data set. Patterns of selection are likely weaker in this system, so I'd like to try and capture more loci putatively under selection. 
+
+```{r}
+outliers <- function(x,z){
+  lims <- mean(x) + c(-1, 1) * z * sd(x)     # find loadings +/-z sd from mean loading     
+  x[x < lims[1] | x > lims[2]]               # locus names in these tails
+}
+```
+
+```{r}
+cand1 <- outliers(loadings_neut_noinvert[,1],2)
+
+ncand <- length(cand1)
+ncand
+```
+
+There's clearly quite a lot of candiate loci associated with minimum salinity. I'm going to save these and extract them from the set of neutral SNPs.
+
+```{r}
+cand1_all <- cbind.data.frame(rep(1,times=length(cand1)), names(cand1), unname(cand1))
+#cand2_all <- cbind.data.frame(rep(2,times=length(cand2)), names(cand2), unname(cand2))
+
+colnames(cand1_all) <- c("axis","snp","loading")
+
+cand <- rbind(cand1_all)
+cand$snp <- as.character(cand$snp)
+```
+
+```{r}
+# Checking for any repeats 
+length(cand$snp[duplicated(cand$snp)])
+```
+
+```{r}
+library(dplyr)
+```
+
+```{r}
+rda_outliers_sal_min <- cand %>%
+  extract(snp, c("chrom", "pos", "allele"), "(NC_\\d+)_1_(\\d+).(\\d)") %>%
+  mutate(
+    chrom = paste0(chrom, ".1"),
+    pos = as.integer(pos)
+  ) %>%
+  dplyr::select(chrom, pos)
+```
+
+```{r}
+write.table(rda_outliers_sal_min, "outliers_rda_sal_min.loci.txt", sep="\t", row.names=FALSE, col.names = FALSE, quote=FALSE)
+```
+
+In terminal, I'm going to remove these outliers from the set of neutral SNPs (inversions excluded) using vcftools. Then I'll run the RDA again to see if the association with environment is reduced. 
+
+In terminal: 
+
+```
+$ vcftools --vcf neutralloci_noinversion.recode.vcf --exclude-positions outliers_rda_sal_min.loci.txt --recode-INFO-all --recode --out neut_noinvert_norda
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+After filtering, kept 20747 out of a possible 21038 Sites
+Run Time = 5.00 seconds
+```
+
+I'm also making a separate vcf file with the outliers identified from the RDA. These will be used in the pop gen analyses and functional annotation portion. 
+
+```
+$ vcftools --vcf neutralloci_noinversion.recode.vcf --positions outliers_rda_sal_min.loci.txt --recode-INFO-all --recode --out outliers_rda
+
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+After filtering, kept 291 out of a possible 21038 Sites
+Run Time = 0.00 seconds
+```
+
+## Repeating the RDA with the updated neutral SNP data set
+
+In R:
+
+**Make genind object**
+
+```{r}
+# VCF file with Neutral SNPs where inversions are removed
+my_vcf_neut_noinvert_norda <- read.vcfR("neut_noinvert_norda.recode.vcf")
+```
+
+```{r}
+rad_neut_noinvert_norda.filt <- vcfR2genind(my_vcf_neut_noinvert_norda, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+
+rad_neut_noinvert_norda.filt
+```
+
+### Prep allele frequency data
+
+```{r}
+# Explore data
+rad_neut_noinvert_norda.filt
+nLoc(rad_neut_noinvert_norda.filt) # number of loci
+nPop(rad_neut_noinvert_norda.filt) # number of sites
+nInd(rad_neut_noinvert_norda.filt) # number of individuals
+summary(rad_neut_noinvert_norda.filt$pop) # sample size
+
+# Calculate allele frequencies for each site
+allele_freqs_neut_noinvert_norda = data.frame(rraf(rad_neut_noinvert_norda.filt, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+
+# Keep only the first of the two alleles for each SNP (since p=1-q).
+allele_freqs_neut_noinvert_norda = allele_freqs_neut_noinvert_norda[, seq(1, dim(allele_freqs_neut_noinvert_norda)[2], 2)]
+
+# Export allele frequencies
+write.csv(allele_freqs_neut_noinvert_norda, file = "all_allele_freqs_neut_noinvert_norda.csv", row.names = TRUE)
+```
+
+**Minor allele frequencies**
+
+```{r}
+# Separate genind object by site
+site_list_neut_noinvert_norda = seppop(rad_neut_noinvert_norda.filt)
+names(site_list_neut_noinvert_norda)
+
+# Calculate the minor allele frequency for each site
+maf_list_neut_noinvert_norda = lapply(site_list_neut_noinvert_norda, FUN = minorAllele)
+
+# Convert list to dataframe
+maf_neut_noinvert_norda = as.data.frame(maf_list_neut_noinvert_norda) %>% t() %>% as.data.frame()
+
+# Export minor allele frequencies
+write.csv(maf_neut_noinvert_norda, file = "minor_allele_freqs_neut_noinvert_norda.csv", row.names = TRUE)
+```
+
+### Identify significant environmental predictors in RDA model
+
+```{r}
+# Set seed
+set.seed(123)
+```
+
+```{r}
+# Use forward selection to identify significant environmental variables with ordiR2step
+# first we need to create a null model and then a full model 
+## Null model
+RDA0_neut_noinvert_norda <- rda(allele_freqs_neut_noinvert_norda ~ 1,  env.z) 
+
+## full model
+RDA_neut_noinvert_norda <- rda(allele_freqs_neut_noinvert_norda ~ ., env.z)
+
+## adjusted R squared of full. model
+adjR2.RDA_neut_noinvert_norda <- RsquareAdj(RDA_neut_noinvert_norda)$adj.r.squared
+ 
+# Running ordiR2step to identify significant environmental variables in the model 
+mod_neut_noinvert_norda <- ordiR2step(RDA0_neut_noinvert_norda, scope = formula(RDA_neut_noinvert_norda), Pin = 0.05, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r}
+# Use forward selection to identify significant environmental variables
+Y_neut_noinvert_norda = allele_freqs_neut_noinvert_norda
+X_neut_noinvert_norda = env.z
+env.for_neut_noinvert_norda = forward.sel(Y_neut_noinvert_norda, X_neut_noinvert_norda, alpha = 0.05)
+env.for_neut_noinvert_norda
+
+# Use forward selection to identify significant dbmems
+dbmem.for_neut_noinvert_norda = forward.sel(Y = allele_freqs_neut_noinvert_norda, X = dbmem.raw, alpha = TRUE)
+dbmem.for_neut_noinvert_norda
+```
+
+```{r}
+# Perform RDA with all significant variables
+rda_neut_noinvert = rda(allele_freqs_neut_noinvert_norda ~ July_Temp_Avg, data = env.z, scale = TRUE)
+rda_neut_noinvert
+
+# Model summaries
+RsquareAdj(rda_neut_noinvert) # adjusted Rsquared 
+vif.cca(rda_neut_noinvert) # variance inflation factor (<10 OK)
+anova.cca(rda_neut_noinvert, permutations = 1000) # full model
+anova.cca(rda_neut_noinvert, permutations = 1000, by="margin") # per variable 
+
+# Variance explained by each canonical axis
+summary(eigenvals(rda_neut_noinvert, model = "constrained"))
+screeplot(rda_neut_noinvert)
+```
+
+With the loci associated with min salinity removed, we no longer see that strong association with environment. I feel more confident that putative outliers were removed. I'm going to move forward with the remaining pop gen analyses. 
+
+**Add strata information to genind object**
+
+```{r}
+info_neut_noinvert_norda <- as.data.frame(read.table("../strata6_red_12var",header = T,sep = "\t",stringsAsFactors = F))
+mystrats_neut_noinvert_norda <- as.data.frame(matrix(nrow = length(indNames(rad_neut_noinvert_norda.filt)),ncol=16))
+just_neut_noinvert_norda.strats <- dplyr::select(info_neut_noinvert_norda,c("Population"))
+stratted_neut_noinvert_norda.filt <- strata(rad_neut_noinvert_norda.filt, formula= Population, combine = TRUE,just_neut_noinvert_norda.strats)
+stratted_neut_noinvert_norda.filt@other <- info_neut_noinvert_norda[,3:16]
+
+stratted_neut_noinvert_norda.filt
+```
+
+**Make hierfstat object**
+
+```{r}
+hf_neut_noinvert_norda.filt <- genind2hierfstat(rad_neut_noinvert_norda.filt, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+```
+
+## Pairwise Fst of Neutral SNPs with inversions removed and RDA outliers removed
+
+```{r}
+fst_neut_noinvert_norda.mat <- pairwise.WCfst(hf_neut_noinvert_norda.filt)
+```
+
+```{r}
+# get bootstrap confidence values for Fst
+boot_neut_noinvert_norda_fst <- boot.ppfst(hf_neut_noinvert_norda.filt,nboot = 1000)
+boot5_neut_noinvert_norda_fst <- boot.ppfst(hf_neut_noinvert_norda.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+Fst_neut_noinvert_norda_ll <- boot5_neut_noinvert_norda_fst$ll
+```
+
+```{r}
+gindF_neut_noinvert_norda.fst.mat.triN <- as.matrix(fst_neut_noinvert_norda.mat)
+colnames(gindF_neut_noinvert_norda.fst.mat.triN) <- pop_order_6pops
+rownames(gindF_neut_noinvert_norda.fst.mat.triN) <- pop_order_6pops
+```
+
+```{r}
+meltedN_neut_noinvert_norda <- melt(gindF_neut_noinvert_norda.fst.mat.triN, na.rm =TRUE)
+round(gindF_neut_noinvert_norda.fst.mat.triN,4)
+```
+
+```{r}
+summary(meltedN_neut_noinvert_norda$value)
+```
+
+```{r}
+#Plotting Pairwise fst
+neut_noinvert_norda <- ggplot(data = meltedN_neut_noinvert_norda, aes(Var2, Var1, fill = value))+ geom_tile(color = "white")+ 
+  scale_fill_gradient(low = "white", high = "chocolate1", name="FST")  +
+  ggtitle(expression(atop("Pairwise FST, WC (1984) Neutral SNPs for 6 Populations", atop(italic("N = 60, L = 20,747"), ""))))+
+  labs( x = "Sampling Site", y = "Sampling Site") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),axis.text.y = element_text(size = 12)) + 
+  theme(axis.title = element_text(size = 12),legend.text = element_text(size =14), legend.title = element_text(size =14)) +
+  theme(plot.title = element_text(size = 12)) +
+coord_fixed()
+neut_noinvert_norda
+```
+
+## PCA 
+
+```{r}
+library("PCAviz")  #Visualizing output of PCA
+library("cowplot") #Used with PCAviz
+```
+
+```{r}
+# Create color scheme
+# green=#7FC97F, blue = #00008B, orange=#FF7F00, purple=#9A32CD, pink=#FF1493, cyan=#00FFFF
+cols_6pops = c("#7FC97F","#00008B","#FF7F00","#9A32CD","#FF1493","#00FFFF")
+```
+
+```{r}
+# Plot a PCA for the Neutral loci with inversions removed
+x_neut_noinvert_norda <- scaleGen(rad_neut_noinvert_norda.filt, NA.method = "mean")
+neut_noinvert_norda_pca <- dudi.pca(x_neut_noinvert_norda, center = FALSE, scale = FALSE, scannf = FALSE, nf = 4)
+eig_percent_neut_noinvert_norda <- round((neut_noinvert_norda_pca$eig / (sum(neut_noinvert_norda_pca$eig))) * 100, 2)
+
+pca_dat_neut_noinvert_norda <- as.data.frame(neut_noinvert_norda_pca$li) %>%
+                    rownames_to_column(var = "ind") %>%
+                    cbind(pop = pop(rad_neut_noinvert_norda.filt)) %>%
+                    mutate(pop = factor(pop, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD")))
+
+
+ggplot(data = pca_dat_neut_noinvert_norda) +
+    geom_point(aes(x = Axis1, y = Axis2, colour = pop), size = 3, alpha = 0.8) +
+    scale_colour_manual(values = cols_6pops, name = "Sample site") +
+    theme_minimal() +
+    labs(x = paste("", "Axis 1: ", eig_percent_neut_noinvert_norda[1], "%"), 
+         y = paste("", "Axis 2: ", eig_percent_neut_noinvert_norda[2], "%"),
+         colour = "Population") +
+    coord_fixed(ratio = 0.75)
+ggsave("neutral_pca.png", width = 6, height = 4.6, units = "in", dpi = 300, bg = "white")
+```
+
+## Genetic diversity (observed and expected heterozygosity)
+
+```{r}
+comb_neut_noinvert_norda <- summary(stratted_neut_noinvert_norda.filt)
+names(stratted_neut_noinvert_norda.filt)
+```
+
+```{r}
+plot(comb_neut_noinvert_norda$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+```
+
+```{r}
+plot(comb_neut_noinvert_norda$Hobs,comb_neut_noinvert_norda$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+```
+
+```{r}
+bartlett.test(list(comb_neut_noinvert_norda$Hexp, comb_neut_noinvert_norda$Hobs)) # a test : H0: Hexp = Hobs
+```
+
+**_Significant difference between Observed and expected heterozygosity_**.  
+
+```{r}
+basicstat_neut_noinvert_norda <- basic.stats(hf_neut_noinvert_norda.filt, diploid = TRUE, digits = 3)
+```
+
+```{r}
+as.data.frame(basicstat_neut_noinvert_norda$overall)
+```
+
+```{r}
+# get bootstrap confidence values for Fis
+boot_neut_noinvert_norda <- boot.ppfis(hf_neut_noinvert_norda.filt,nboot = 1000)
+boot5_neut_noinvert_norda <- boot.ppfis(hf_neut_noinvert_norda.filt,nboot = 1000,quant = 0.5)
+```
+
+```{r}
+# combine all pop statistics
+colnames(basicstat_neut_noinvert_norda$Ho) <- pop_order_6pops
+Ho_neut_noinvert_norda <- colMeans(basicstat_neut_noinvert_norda$Ho,na.rm = T)
+He_neut_noinvert_norda <- colMeans(basicstat_neut_noinvert_norda$Hs,na.rm = T)
+Fis_neut_noinvert_norda <- boot5_neut_noinvert_norda$fis.ci$ll
+y_neut_noinvert_norda <- cbind(pop_order_6pops,Ho_neut_noinvert_norda,He_neut_noinvert_norda, Fis_neut_noinvert_norda, strata_6pops[,3:16])
+```
+
+```{r}
+summary(He_neut_noinvert_norda)
+```
+
+```{r}
+summary(Fis_neut_noinvert_norda)
+```
+
+Plotting F statistics versus each environmental variables (including lat and long)
+
+This can be modified for each F statistic (He, Ho, Fis) - just make sure to change the title in the function. 
+
+```{r}
+# Function to generate and display plots for all environmental variables
+generate_plots <- function(data, response_var, env_vars, pop_order_var) {
+  # Define color scheme
+  color_scheme <- c("#7FC97F","#00008B","#FF7F00","#9A32CD","#FF1493","#00FFFF")
+  
+  for (env_var in env_vars) {
+    # Ensure variable names are valid
+    if (!all(c(response_var, env_var, pop_order_var) %in% colnames(data))) {
+      cat("Skipping variable", env_var, "as it is not found in the data\n")
+      next
+    }
+    
+    # Remove rows with missing values in the relevant columns
+    subset_data <- data[complete.cases(data[, c(response_var, env_var, pop_order_var)]), ]
+    
+    # Calculate R² value
+    formula <- as.formula(paste(response_var, "~", env_var))
+    R2_value <- round(summary(lm(formula, data = subset_data))$r.squared, 8)
+    
+    # Generate plot title
+    plot_title <- paste("Observed Heterozygosity vs", env_var, ", neut_noinvert_nordaral SNPs 6 pops")
+    
+    # Generate plot
+    p <- ggplot(subset_data, aes_string(x = env_var, y = response_var)) + 
+      geom_point(aes_string(color = pop_order_var), shape = 16, size = 3) + 
+      scale_color_manual(values = color_scheme) +
+      geom_smooth(method = "lm", color = "black") + 
+      ggtitle(plot_title) +
+      annotate(geom = "text", label = paste("italic(R^2)==", R2_value), x = Inf, y = Inf, hjust = 1.1, vjust = 2, parse = TRUE) +
+      scale_x_continuous() +
+      theme_bw() +
+      theme(legend.title = element_blank(),
+            plot.title = element_text(hjust = 0.5))
+    
+    # Print the plot
+    print(p)
+    
+    cat("Generated plot for", env_var, "\n")
+  }
+}
+```
+
+```{r}
+generate_plots(y_neut_noinvert_norda, "Ho_neut_noinvert_norda", colnames(y_neut_noinvert_norda)[5:18], "pop_order_6pops")
+```
+
+
+
+## RDAforest
+
+```{r}
+library(RDAforest)
+library(gradientForest)
+library(mapdata)
+library(poppr)
+```
+
+### Data exploration
+
+Check for missing data.
+
+```{r}
+sum(is.na(rad_neut_noinvert.filt$tab))
+```
+
+RDAforest doesn't handle missing data, so I'm going to impute missing data using mean allele frequencies
+
+```{r}
+gen_neut_noinvert.imp <- apply(rad_neut_noinvert.filt$tab, 2, function(x) replace(x, is.na(x), as.numeric(names(which.max(table(x))))))
+sum(is.na(gen_neut_noinvert.imp)) # No NAs
+```
+
+Let’s compute genetic distances based on genotypic correlation, and make an unconstrained ordination:
+```{r}
+# distances:
+cordist_neut_noinvert=1-cor(t(gen_neut_noinvert.imp))
+# ordination:
+ord_neut_noinvert=capscale(cordist_neut_noinvert~1)
+```
+
+```{r}
+# Creating a population vector that I can add back in 
+pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10))
+```
+
+
+Proportion of variance explained by PCs (“MDS” is the mathematically identical to principal components so we will call them PCs):
+
+```{r}
+plot(ord_neut_noinvert$CA$eig/sum(ord_neut_noinvert$CA$eig),xlab="PC",ylab="proportion of variance explained")
+```
+
+Probably 2, maybe 3, leading principal components.
+Extracting scores, plotting ordination:
+
+```{r}
+so_neut_noinvert=data.frame(scores(ord_neut_noinvert,scaling=1,display="sites"))
+ggplot(so_neut_noinvert,aes(MDS1,MDS2,color=pop))+geom_point()+coord_equal()+theme_bw()
+```
+
+### Exploring Isolation By Distance (IBD)
+
+```{r}
+# converting lat, lon to great circle distances
+GCD=gcd.dist(strata6[,3:4])
+latlon.gcd=GCD[[1]]
+distGCD=GCD[[2]]
+
+plot(as.dist(cordist_neut_noinvert)~distGCD,pch=16,cex=0.6,col=rgb(0,0,0,alpha=0.2))
+```
+
+```{r}
+protest(capscale(distGCD~1),capscale(cordist_neut_noinvert~1))
+```
+
+Not a strong correlation, so I don't need to worry about regressing the geographic information out of the genetic data.
+
+### Exploratory RDA-forest analysis
+
+We will use all predictors and more leading PCs (25, specified by the option pcs2keep=c(1:25)) that we will likely need, just to see how it looks. 
+
+```{r}
+env <- strata6_full[,5:44]
+env <- as.matrix(env)
+rownames(env) <- strata6_full$Individuals
+```
+
+```{r}
+gf_neut_noinvert=makeGF(ord_neut_noinvert,env,pcs2keep=NULL)
+```
+
+```{r}
+# predicted PCs, and how well they are predicted (per-PC R2s)
+gf_neut_noinvert$result
+```
+
+```{r}
+# rescaling to proportion of total variance (based on eigenvalues in ord1)
+eigen.var=(ord_neut_noinvert$CA$eig/sum(ord_neut_noinvert$CA$eig))[names(gf_neut_noinvert$result)]
+# total variance explained by model
+sum(eigen.var*gf_neut_noinvert$result)
+```
+
+```{r}
+# setting the number of PCs to keep
+tokeep=2
+# computing properly scaled importances:
+imps=data.frame(importance_RDAforest(gf_neut_noinvert,ord_neut_noinvert))
+# some data frame housekeeping...
+names(imps)="R2"
+imps$var=row.names(imps)
+# reordering predictors by their importances:
+imps$var=factor(imps$var,levels=imps$var[order(imps$R2)])
+# plotting
+ggplot(imps,aes(var,R2))+geom_bar(stat="identity")+coord_flip()+theme_bw()
+```
+
+```{r}
+plot_gf_turnovers(gf_neut_noinvert,imps$var[1:7])
+```
+
+```{r}
+cordist<-as.data.frame(cordist_neut_noinvert)
+env_df<-as.data.frame(env)
+#rownames(env_df)<- strata6$Individual
+```
+
+```{r}
+mm=mtrySelJack(Y=cordist,X=env_df,covariates=latlon.gcd,nreps=50, top.pcs=tokeep, prop.positive.cutoff =0.25)
+```
+
+
+## Classification of neutral SNPs 
+
+First checking for outlier SNPs that are exons and inside genes. The eastern oyster genome (haplotig masked) has bed files containing locations of exons, genes, and coding sequences. I pulled these bed files from [Jon]
+
+```
+$ wget https://raw.githubusercontent.com/madmolecularman/EecSeq_obj1a/refs/heads/main/Bioinformatics/cvir_genome/sorted.ref3.0.exon.sc.hmask.bed
+```
+
+I'm going to use vcftools to parse out the neutral SNPs that are in exon, gene, and coding sequence regions. 
+
+15,552 SNPs in exon regions; 19,211 SNPs in gene regions; 10,399 SNPs in coding sequences 
+
+```
+# VCF file containing all exon regions
+$ vcftools --vcf neut_noinvert_norda.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.exon.sc.bed --out neutral_noinvert_norda_exon
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 337295 BED file entries.
+After filtering, kept 15552 out of a possible 20747 Sites
+Run Time = 9.00 seconds
+```
+
+```
+# VCF file containing all gene regions
+$ vcftools --vcf neut_noinvert_norda.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.gene.sc.bed --out neutral_noinvert_norda_gene
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 35016 BED file entries.
+After filtering, kept 19211 out of a possible 20747 Sites
+Run Time = 6.00 seconds
+```
+
+```
+# VCF file containing all coding sequences 
+$ vcftools --vcf neut_noinvert_norda.recode.vcf --recode --recode-INFO-all --bed sorted.ref3.0.CDS.sc.bed --out neutral_noinvert_norda_CDS
+
+output:
+After filtering, kept 60 out of 60 Individuals
+Outputting VCF file...
+	Read 295525 BED file entries.
+After filtering, kept 10399 out of a possible 20747 Sites
+Run Time = 8.00 seconds
+```
+
+
+
+Making plots for Jon:
+
+```{r}
+# First, run the ANOVA to get the p-value
+anova_result <- anova.cca(rda_neut_noinvert, permutations = 1000)
+p_value <- anova_result$`Pr(>F)`[1]  # Extract the overall p-value
+
+# Set up the plot with transparent background
+png("rda_neut_noinvert_JP.png", width = 8, height = 7, units = "in", res = 600, bg = "transparent")
+
+# Increase the base font size
+par(cex = 1.2)  # This will increase all text sizes by 20%
+
+# Create the plot without axis labels
+plot(rda_neut_noinvert, type="n", scaling = 3, 
+     col.axis = "white", col.lab = "white", col.main = "white", col.sub = "white",
+     xlab = "", ylab = "")  # Suppress axis labels here
+
+# Set the plot region to have a transparent background
+par(bg = "transparent")
+
+# SITES
+points(rda_neut_noinvert, display="sites", pch=21, scaling=3, cex=1.8, col="white",
+       bg=adjustcolor(cols_6pops[col_dframe$region], alpha.f = 0.7))  # sites with semi-transparent fill
+text(rda_neut_noinvert, display="sites", scaling = 3, col="white", font=2, pos=4, cex = 1.2)
+
+# PREDICTORS
+text(rda_neut_noinvert, display="bp", scaling=3, col="red1", cex=0.65, lwd=2)
+
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda_neut_noinvert)$adj.r.squared, 3)
+p_value_formatted = format.pval(p_value, digits = 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)~";"~"p-value"~"="~.(p_value_formatted)), 
+      side = 3, adj = 0.5, col = "white", cex = 1.2)
+
+# Add axis labels in white with larger font (only once)
+title(xlab = "RDA1", ylab = "PC1", col.lab = "white", cex.lab = 1.4)
+
+# Increase axis text size
+par(cex.axis = 1.2)
+
+# Add a white box around the plot
+box(col = "white")
+
+dev.off()
+```
+
+```{r}
+# Plot the CA
+plot <- ggplot(strata_ca_neut_noinvert, aes(x = Axis1, y = Axis2, colour = Population)) +
+  geom_point(size = 6, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops, name = "") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, color = "white"),
+    text = element_text(color = "white"),
+    axis.line = element_line(colour = "white", size = 1.5),
+    axis.text.x = element_text(size = 16*0.8, color = "white", lineheight = 0.9),
+    axis.text.y = element_text(size = 16*0.8, color = "white", lineheight = 0.9),
+    axis.ticks = element_line(color = "white", size  =  0.2),
+    axis.title.x = element_text(size = 16, color = "white"),
+    axis.title.y = element_text(size = 16, color = "white", angle = 90),
+    axis.ticks.length = unit(0.3, "lines"),
+    # Specify panel options
+    panel.border = element_blank(),
+    panel.grid.major = element_line(color = "transparent"),
+    panel.grid.minor = element_line(color = "transparent"),
+    panel.background = element_rect(fill = "transparent", color = NA),
+    plot.background = element_rect(fill = "transparent", color = NA),
+    # Specify legend options
+      legend.background = element_rect(color = NA, fill = "transparent"),
+      legend.key = element_rect(color = "white",  fill = "transparent"),
+      legend.key.size = unit(1.2, "lines"),
+      legend.key.height = NULL,
+      legend.key.width = NULL,
+      legend.text = element_text(size = 16*0.8, color = "white"),
+      legend.title = element_text(size = 16*0.8, face = "bold", hjust = 0, color = "white"),
+      legend.position = "right",
+      legend.text.align = NULL,
+      legend.title.align = NULL,
+      legend.direction = "vertical",
+      legend.box = NULL,
+  ) +
+  labs(title = "Neutral SNPs Correspondence Analysis",
+       x = paste("", "CA1: ", eig_ca1_neut_noinvert[1], "%"), 
+       y = paste("", "CA2: ", eig_ca1_neut_noinvert[2], "%"))
+
+# Display the plot (will show with black background in R)
+print(plot)
+
+# Save the plot with transparent background
+ggsave("ca_neut_noinvert_JP.png", plot, bg = "transparent")
+```
+
+```{r}
+# Plot CA1 versus June Salinity Min 
+# First, calculate the R-squared value and p-value
+sal_mod <- lm(Axis1 ~ June_Salinity_Min, data = strata_ca_neut_noinvert)
+model_summary <- summary(sal_mod)
+r_squared <- model_summary$r.squared
+p_value <- model_summary$coefficients[2, 4]  # p-value for the slope
+
+# Function to format p-value
+format_pvalue <- function(p) {
+  if (p < 0.001) return("p < 0.001")
+  if (p < 0.01) return(sprintf("p = %.3f", p))
+  return(sprintf("p = %.2f", p))
+}
+
+# Now create the plot
+plot <- strata_ca_neut_noinvert %>%
+  ggplot(aes(x = Axis1, y = June_Salinity_Min)) +
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 6) +
+  scale_color_manual(values = cols_6pops, name = NULL) +
+  labs(x = "CA1", y = "Minimum Salinity") +
+  annotate("text", x = Inf, y = Inf, 
+           label = sprintf("R² = %.3f\n%s", r_squared, format_pvalue(p_value)),
+           hjust = 1.1, vjust = 1.1, color = "white", size = 5) +
+  theme(
+    plot.title = element_text(size = 14, color = "white"),
+    text = element_text(color = "white"),
+    axis.line = element_line(colour = "white", size = 1.5),
+    axis.text.x = element_text(size = 16*0.8, color = "white", lineheight = 0.9),
+    axis.text.y = element_text(size = 16*0.8, color = "white", lineheight = 0.9),
+    axis.ticks = element_line(color = "white", size  =  0.2),
+    axis.title.x = element_text(size = 16, color = "white"),
+    axis.title.y = element_text(size = 16, color = "white", angle = 90),
+    axis.ticks.length = unit(0.3, "lines"),
+    # Specify panel options
+    panel.border = element_blank(),
+    panel.grid.major = element_line(color = "transparent"),
+    panel.grid.minor = element_line(color = "transparent"),
+    panel.background = element_rect(fill = "transparent", color = NA),
+    plot.background = element_rect(fill = "transparent", color = NA),
+    # Specify legend options
+      legend.background = element_rect(color = NA, fill = "transparent"),
+      legend.key = element_rect(color = "white",  fill = "transparent"),
+      legend.key.size = unit(1.2, "lines"),
+      legend.key.height = NULL,
+      legend.key.width = NULL,
+      legend.text = element_text(size = 16*0.8, color = "white"),
+      legend.title = NULL,
+      legend.position = "right",
+      legend.text.align = NULL,
+      legend.title.align = NULL,
+      legend.direction = "vertical",
+      legend.box = NULL,
+  )
+
+# Display the plot
+print(plot)
+
+# Save the plot with a transparent background
+ggsave("salinity_ca1_plot_JP.png", plot, bg = "transparent")
+```
