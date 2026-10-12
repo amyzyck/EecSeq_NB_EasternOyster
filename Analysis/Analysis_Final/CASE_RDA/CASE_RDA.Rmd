@@ -1,0 +1,3214 @@
+---
+title: "RDA Code CASE"
+author: "Amy Zyck with modifcations by Jon Puritz"
+date: '2024-11-20'
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+library(adegenet)
+library(vcfR)
+library("radiator") # Conversion from vcf to a lot of other formats
+library("dplyr")
+library("ggplot2") #For plotting
+library("reshape2") #For plotting
+library(pantomime)
+library(tibble)
+library(poppr)
+library(psych)
+library(adespatial)
+library(vegan)
+
+theme_black = function(base_size = 16, base_family = "") {
+  
+  theme_grey(base_size = base_size, base_family = base_family) %+replace%
+    
+    theme(
+      # Specify axis options
+      axis.line = element_line(colour = "white", size = 1.5),
+      axis.text.x = element_text(size = base_size*0.8, color = "white", lineheight = 0.9),  
+      axis.text.y = element_text(size = base_size*0.8, color = "white", lineheight = 0.9),  
+      axis.ticks = element_line(color = "white", size  =  0.2),  
+      axis.title.x = element_text(size = base_size, color = "white", margin = margin(0, 10, 0, 0)),  
+      axis.title.y = element_text(size = base_size, color = "white", angle = 90, margin = margin(0, 10, 0, 0)),  
+      axis.ticks.length = unit(0.3, "lines"),   
+      # Specify legend options
+      legend.background = element_rect(color = NA, fill = "transparent"),  
+      legend.key = element_rect(color = NA,  fill = "transparent"),  
+      legend.key.size = unit(1.2, "lines"),  
+      legend.key.height = NULL,  
+      legend.key.width = NULL,      
+      legend.text = element_text(size = base_size*0.8, color = "white"),  
+      legend.title = element_text(size = base_size*0.8, face = "bold", hjust = 0, color = "white"),  
+      legend.position = "right",  
+      legend.text.align = NULL,  
+      legend.title.align = NULL,  
+      legend.direction = "vertical",  
+      legend.box = NULL, 
+      # Specify panel options
+      panel.background = element_rect(fill = "transparent", color  =  NA),  
+      panel.border = element_blank(),  
+      panel.grid.major = element_line(color = "transparent"),  
+      panel.grid.minor = element_line(color = "transparent"),  
+      #panel.margin = unit(0.5, "lines"),   
+      panel.spacing= unit(0.5, "lines"),
+      # Specify facetting options
+      strip.background = element_rect(fill = "transparent", color = "transparent"),  
+      strip.text.x = element_text(size = base_size*0.8, color = "white"),  
+      strip.text.y = element_text(size = base_size*0.8, color = "white",angle = -90),  
+      # Specify plot options
+      plot.background = element_rect(color = "transparent", fill = "transparent"),  
+      plot.title = element_text(size = base_size*1.2, color = "white", hjust = 1),  
+      plot.margin = unit(rep(1, 4), "lines")
+      
+    )
+  
+}
+```
+
+## Making files
+
+```{r, include=FALSE}
+# Setting up strata file - population info and environmental data 
+strata6 <- read.table("./strata6_red_12var", header=TRUE)
+
+# Making new version of strata file with one row per population
+strata_6pops <- strata6 %>% distinct(Population, .keep_all = TRUE)
+```
+
+```{r, include=FALSE}
+#Providing population names for plotting
+pop_order_6pops <- c("BAR","BIS","GB","KIC","MCD","PVD")
+```
+
+**Make genind object**
+```{r}
+getwd()
+```
+```{bash, include=FALSE}
+bedtools slop -b 10 -i <(bedtools sort -i CASE.Significant.loci.bed)  -g ../../reference.fasta.fai  | bedtools merge -i - >  CASE.Significant.loci.intervals.bed
+
+bedtools slop -b 10 -i <(bedtools sort -i CA.Significant.loci.bed)  -g ../../reference.fasta.fai  | bedtools merge -i - >  CA.Significant.loci.intervals.bed
+
+bedtools slop -b 10 -i <(bedtools sort -i SE.Significant.loci.bed)  -g ../../reference.fasta.fai  | bedtools merge -i - >  SE.Significant.loci.intervals.bed
+
+bedtools slop -b 10 -i <(bedtools sort -i SE.CASE.Significant.loci.bed)  -g ../../reference.fasta.fai  | bedtools merge -i - >  SE.CASE.Significant.loci.intervals.bed
+
+bedtools slop -b 10 -i <(bedtools sort -i SE.CASE.CA.Significant.loci.bed)  -g ../../reference.fasta.fai  | bedtools merge -i - >  SE.CASE.CA.Significant.loci.intervals.bed
+
+bedtools slop -b 10 -i <(bedtools sort -i SE.CA.Significant.loci.bed)  -g ../../reference.fasta.fai  | bedtools merge -i - >  SE.CA.Significant.loci.intervals.bed
+
+bedtools slop -b 10 -i <(bedtools sort -i CA.CASE.Significant.loci.bed)  -g ../../reference.fasta.fai  | bedtools merge -i - >  CA.CASE.Significant.loci.intervals.bed
+
+bedtools slop -b 10 -i <(bedtools sort -i SE.ONLY.Significant.loci.bed)  -g ../../reference.fasta.fai  | bedtools merge -i - >  SE.ONLY.Significant.loci.intervals.bed
+
+bedtools slop -b 10 -i <(bedtools sort -i CASE.ONLY.Significant.loci.bed)  -g ../../reference.fasta.fai  | bedtools merge -i - >  CASE.ONLY.Significant.loci.intervals.bed
+
+bedtools slop -b 10 -i <(bedtools sort -i CA.ONLY.Significant.loci.bed)  -g ../../reference.fasta.fai  | bedtools merge -i - >  CA.ONLY.Significant.loci.intervals.bed
+
+bedtools slop -b 10 -i <(bedtools sort -i CA.factor.Significant.loci.bed)  -g ../../reference.fasta.fai  | bedtools merge -i - >  CA.FACTOR.Significant.loci.intervals.bed
+
+bedtools slop -b 10 -i <(bedtools sort -i SE.factor.Significant.loci.bed)  -g ../../reference.fasta.fai  | bedtools merge -i - >  SE.FACTOR.Significant.loci.intervals.bed
+
+bedtools slop -b 10 -i <(bedtools sort -i CASE.Total.Significant.loci.bed) -g ../../reference.fasta.fai  | bedtools merge -i - >  CASE.Total.Significant.loci.intervals.bed
+```
+```{bash, include=FALSE}
+vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --bed CASE.Significant.loci.intervals.bed --recode --recode-INFO-all --out CASE_ins
+
+vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --bed CA.Significant.loci.intervals.bed --recode --recode-INFO-all --out CA_ins
+
+vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --bed SE.Significant.loci.intervals.bed --recode --recode-INFO-all --out SE_ins
+
+vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --bed SE.CASE.Significant.loci.intervals.bed --recode --recode-INFO-all --out SE.CASE_ins
+
+vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --bed SE.CASE.CA.Significant.loci.intervals.bed --recode --recode-INFO-all --out SE.CASE.CA_ins
+
+vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --bed SE.CA.Significant.loci.intervals.bed --recode --recode-INFO-all --out SE.CA_ins
+
+vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --bed CA.CASE.Significant.loci.intervals.bed --recode --recode-INFO-all --out CA.CASE_ins
+
+vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --bed SE.ONLY.Significant.loci.intervals.bed --recode --recode-INFO-all --out SE.ONLY_ins
+
+vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --bed CASE.ONLY.Significant.loci.intervals.bed --recode --recode-INFO-all --out CASE.ONLY_ins
+
+vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --bed CA.ONLY.Significant.loci.intervals.bed --recode --recode-INFO-all --out CA.ONLY_ins
+
+
+vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --bed CA.FACTOR.Significant.loci.intervals.bed --recode --recode-INFO-all --out CA.FACTOR_ins
+
+vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --bed SE.FACTOR.Significant.loci.intervals.bed --recode --recode-INFO-all --out SE.FACTOR_ins
+
+
+vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --bed CASE.Total.Significant.loci.bed --recode --recode-INFO-all --out CASE_SNPs
+
+vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --bed CASE.Total.Significant.loci.intervals.bed --recode --recode-INFO-all --out CASE_SNPs_intervals
+```
+
+```{r, message=FALSE, warning= FALSE, echo = FALSE}
+# Filtered VCF file with the 66 CASE SNPs  
+my_vcf_casefilt_CASE <- read.vcfR("CASE_ins.recode.vcf")
+my_vcf_casefilt_CAI <- read.vcfR("CA_ins.recode.vcf")
+my_vcf_casefilt_SEI <- read.vcfR("SE_ins.recode.vcf")
+my_vcf_casefilt_SECASE <- read.vcfR("SE.CASE_ins.recode.vcf")
+my_vcf_casefilt <- read.vcfR("CASE_SNPs.recode.vcf")
+my_vcf_casefilt_I <- read.vcfR("CASE_SNPs_intervals.recode.vcf")
+
+my_vcf_casefilt_SE.FACTOR <- read.vcfR("SE.FACTOR_ins.recode.vcf")
+my_vcf_casefilt_CA.FACTOR <- read.vcfR("CA.FACTOR_ins.recode.vcf")
+my_vcf_casefilt_CA.ONLY <- read.vcfR("CA.ONLY_ins.recode.vcf")
+my_vcf_casefilt_CASE.ONLY <- read.vcfR("CASE.ONLY_ins.recode.vcf")
+my_vcf_casefilt_SE.ONLY <- read.vcfR("SE.ONLY_ins.recode.vcf")
+my_vcf_casefilt_CA.CASE_I <- read.vcfR("CA.CASE_ins.recode.vcf")
+my_vcf_casefilt_SE.CA_I <- read.vcfR("SE.CA_ins.recode.vcf")
+my_vcf_casefilt_SE.CASE.CA_I <- read.vcfR("SE.CASE.CA_ins.recode.vcf")
+
+
+rad_casefilt.filt_CASE <- vcfR2genind(my_vcf_casefilt_CASE, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+rad_casefilt.filt_SEI <- vcfR2genind(my_vcf_casefilt_SEI, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+rad_casefilt.filt_CAI <- vcfR2genind(my_vcf_casefilt_CAI, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+rad_casefilt.filt_SECASE <- vcfR2genind(my_vcf_casefilt_SECASE, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+rad_casefilt.filt <- vcfR2genind(my_vcf_casefilt, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+rad_casefilt.filt_I <- vcfR2genind(my_vcf_casefilt_I, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+
+rad_casefilt.filt_SE.FACTOR <- vcfR2genind(my_vcf_casefilt_SE.FACTOR, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+rad_casefilt.filt_CA.FACTOR <- vcfR2genind(my_vcf_casefilt_CA.FACTOR, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+rad_casefilt.filt_CA.ONLY <- vcfR2genind(my_vcf_casefilt_CA.ONLY, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+rad_casefilt.filt_CASE.ONLY <- vcfR2genind(my_vcf_casefilt_CASE.ONLY, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+rad_casefilt.filt_SE.ONLY <- vcfR2genind(my_vcf_casefilt_SE.ONLY, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+rad_casefilt.filt_CA.CASE <- vcfR2genind(my_vcf_casefilt_CA.CASE_I, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+rad_casefilt.filt_SE.CA <- vcfR2genind(my_vcf_casefilt_SE.CA_I, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+rad_casefilt.filt_SE.CASE.CA <- vcfR2genind(my_vcf_casefilt_SE.CASE.CA_I, strata = strata6, pop = c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10),rep("KIC", 10),rep("MCD", 10), rep("PVD",10)))
+
+```
+
+## Seascape Redundancy Analysis 
+
+### Prep Environmental Data
+
+```{r, include=FALSE}
+# Import environmental data
+env.raw = strata_6pops[,3:17]
+```
+
+```{r, include=FALSE}
+# Import spatial data
+dbmem.raw = read.csv("../RDAV2/dbmems_6pops.csv")
+```
+
+```{r, include=FALSE}
+# Removing latitude and longitude
+env.data = subset(env.raw, select = -c(Latitude,Longitude,SewageEffluent))
+# pairs.panels(env.full_out6, scale = TRUE)
+```
+
+```{r, include=FALSE}
+#standardize the environmental data 
+# Scale and center variables
+env.z <- decostand(env.data, method = "standardize")
+# Variables are now centered around a mean of 0
+round(apply(env.z, 2, mean), 1)
+# and scaled to have a standard deviation of 1
+apply(env.z, 2, sd)
+```
+
+```{r, include=FALSE}
+#combine env and dbmem datasets 
+env.full = cbind(env.z, dbmem.raw)
+str(env.full)
+```
+
+### Prep allele frequency data
+
+```{r, include=FALSE}
+# Calculate allele frequencies for each site
+allele_freqs_casefilt_CASE = data.frame(rraf(rad_casefilt.filt_CASE, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+allele_freqs_casefilt_SEI = data.frame(rraf(rad_casefilt.filt_SEI, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+allele_freqs_casefilt_CAI = data.frame(rraf(rad_casefilt.filt_CAI, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+allele_freqs_casefilt_SECASE = data.frame(rraf(rad_casefilt.filt_SECASE, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+allele_freqs_casefilt = data.frame(rraf(rad_casefilt.filt, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+allele_freqs_casefilt_I = data.frame(rraf(rad_casefilt.filt_I, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+
+allele_freqs_casefilt_SE.FACTOR = data.frame(rraf(rad_casefilt.filt_SE.FACTOR, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+allele_freqs_casefilt_CA.FACTOR = data.frame(rraf(rad_casefilt.filt_CA.FACTOR, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+allele_freqs_casefilt_CA.ONLY = data.frame(rraf(rad_casefilt.filt_CA.ONLY, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+allele_freqs_casefilt_CASE.ONLY = data.frame(rraf(rad_casefilt.filt_CASE.ONLY, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+allele_freqs_casefilt_SE.ONLY = data.frame(rraf(rad_casefilt.filt_SE.ONLY, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+allele_freqs_casefilt_CA.CASE = data.frame(rraf(rad_casefilt.filt_CA.CASE, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+allele_freqs_casefilt_SE.CA = data.frame(rraf(rad_casefilt.filt_SE.CA, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+allele_freqs_casefilt_SE.CASE.CA = data.frame(rraf(rad_casefilt.filt_SE.CASE.CA, by_pop = TRUE, correction = FALSE), check.names = FALSE)
+
+
+
+# Keep only the first of the two alleles for each SNP (since p=1-q).
+allele_freqs_casefilt_CASE = allele_freqs_casefilt_CASE[, seq(1, dim(allele_freqs_casefilt_CASE)[2], 2)]
+allele_freqs_casefilt_SEI = allele_freqs_casefilt_SEI[, seq(1, dim(allele_freqs_casefilt_SEI)[2], 2)]
+allele_freqs_casefilt_CAI = allele_freqs_casefilt_CAI[, seq(1, dim(allele_freqs_casefilt_CAI)[2], 2)]
+allele_freqs_casefilt_SECASE = allele_freqs_casefilt_SECASE[, seq(1, dim(allele_freqs_casefilt_SECASE)[2], 2)]
+allele_freqs_casefilt = allele_freqs_casefilt[, seq(1, dim(allele_freqs_casefilt)[2], 2)]
+allele_freqs_casefilt_I = allele_freqs_casefilt_I[, seq(1, dim(allele_freqs_casefilt_I)[2], 2)]
+
+allele_freqs_casefilt_SE.FACTOR = allele_freqs_casefilt_SE.FACTOR[, seq(1, dim(allele_freqs_casefilt_SE.FACTOR)[2], 2)]
+allele_freqs_casefilt_CA.FACTOR = allele_freqs_casefilt_CA.FACTOR[, seq(1, dim(allele_freqs_casefilt_CA.FACTOR)[2], 2)]
+allele_freqs_casefilt_CA.ONLY = allele_freqs_casefilt_CA.ONLY[, seq(1, dim(allele_freqs_casefilt_CA.ONLY)[2], 2)]
+allele_freqs_casefilt_CASE.ONLY = allele_freqs_casefilt_CASE.ONLY[, seq(1, dim(allele_freqs_casefilt_CASE.ONLY)[2], 2)]
+allele_freqs_casefilt_SE.ONLY = allele_freqs_casefilt_SE.ONLY[, seq(1, dim(allele_freqs_casefilt_SE.ONLY)[2], 2)]
+allele_freqs_casefilt_CA.CASE = allele_freqs_casefilt_CA.CASE[, seq(1, dim(allele_freqs_casefilt_CA.CASE)[2], 2)]
+allele_freqs_casefilt_SE.CA = allele_freqs_casefilt_SE.CA[, seq(1, dim(allele_freqs_casefilt_SE.CA)[2], 2)]
+allele_freqs_casefilt_SE.CASE.CA = allele_freqs_casefilt_SE.CASE.CA[, seq(1, dim(allele_freqs_casefilt_SE.CASE.CA)[2], 2)]
+
+
+# Export allele frequencies
+#write.csv(allele_freqs_casefilt, file = "all_allele_freqs_casefilt.csv", row.names = TRUE)
+```
+
+**Minor allele frequencies**
+
+```{r, include=FALSE}
+# Separate genind object by site
+site_list_casefilt_CASE = seppop(rad_casefilt.filt_CASE)
+site_list_casefilt_SEI = seppop(rad_casefilt.filt_SEI)
+site_list_casefilt_SECASE = seppop(rad_casefilt.filt_SECASE)
+site_list_casefilt = seppop(rad_casefilt.filt)
+site_list_casefilt_I = seppop(rad_casefilt.filt_I)
+
+# Convert list to dataframe
+maf_casefilt_CASE = as.data.frame(lapply(site_list_casefilt_CASE, FUN = minorAllele)) %>% t() %>% as.data.frame()
+maf_casefilt_SEI = as.data.frame(lapply(site_list_casefilt_SEI, FUN = minorAllele)) %>% t() %>% as.data.frame()
+maf_casefilt_SECASE = as.data.frame(lapply(site_list_casefilt_SECASE, FUN = minorAllele)) %>% t() %>% as.data.frame()
+maf_casefilt = as.data.frame(lapply(site_list_casefilt, FUN = minorAllele)) %>% t() %>% as.data.frame()
+maf_casefilt_I = as.data.frame(lapply(site_list_casefilt_I, FUN = minorAllele)) %>% t() %>% as.data.frame()
+```
+
+### Identify significant environmental predictors in RDA model
+
+```{r, include=FALSE}
+# Set seed
+set.seed(123)
+```
+
+```{r, include =FALSE}
+# Use forward selection to identify significant environmental variables with ordiR2step
+# first we need to create a null model and then a full model 
+## Null model
+RDA0_casefilt_CASE <- rda(allele_freqs_casefilt_CASE ~ 1,  env.full) 
+RDA0_casefilt_SEI <- rda(allele_freqs_casefilt_SEI ~ 1,  env.full) 
+RDA0_casefilt_CAI <- rda(allele_freqs_casefilt_CAI ~ 1,  env.full) 
+RDA0_casefilt_SECASE <- rda(allele_freqs_casefilt_SECASE ~ 1,  env.full) 
+RDA0_casefilt <- rda(allele_freqs_casefilt ~ 1,  env.full) 
+RDA0_casefilt_I <- rda(allele_freqs_casefilt_I ~ 1,  env.full) 
+
+RDA0_casefilt_SE.FACTOR <- rda(allele_freqs_casefilt_SE.FACTOR ~ 1,  env.full) 
+RDA0_casefilt_CA.FACTOR <- rda(allele_freqs_casefilt_CA.FACTOR ~ 1,  env.full) 
+RDA0_casefilt_CA.ONLY <- rda(allele_freqs_casefilt_CA.ONLY ~ 1,  env.full) 
+RDA0_casefilt_CASE.ONLY <- rda(allele_freqs_casefilt_CASE.ONLY ~ 1,  env.full) 
+RDA0_casefilt_SE.ONLY <- rda(allele_freqs_casefilt_SE.ONLY ~ 1,  env.full) 
+RDA0_casefilt_CA.CASE <- rda(allele_freqs_casefilt_CA.CASE ~ 1,  env.full) 
+RDA0_casefilt_SE.CA <- rda(allele_freqs_casefilt_SE.CA ~ 1,  env.full) 
+RDA0_casefilt_SE.CASE.CA <- rda(allele_freqs_casefilt_SE.CASE.CA ~ 1,  env.full) 
+
+
+## full model
+RDA_casefilt_CASE <- rda(allele_freqs_casefilt_CASE ~ ., env.full)
+RDA_casefilt_SEI <- rda(allele_freqs_casefilt_SEI  ~ ., env.full)
+RDA_casefilt_CAI <- rda(allele_freqs_casefilt_CAI  ~ ., env.full)
+RDA_casefilt_SECASE <- rda(allele_freqs_casefilt_SECASE ~ ., env.full)
+RDA_casefilt <- rda(allele_freqs_casefilt ~ ., env.full)
+RDA_casefilt_I <- rda(allele_freqs_casefilt_I ~ ., env.full)
+RDA_casefilt_SE.FACTOR <- rda(allele_freqs_casefilt_SE.FACTOR ~ .,  env.full) 
+RDA_casefilt_CA.FACTOR <- rda(allele_freqs_casefilt_CA.FACTOR ~ .,  env.full) 
+RDA_casefilt_CA.ONLY <- rda(allele_freqs_casefilt_CA.ONLY ~ .,  env.full) 
+RDA_casefilt_CASE.ONLY <- rda(allele_freqs_casefilt_CASE.ONLY ~ .,  env.full) 
+RDA_casefilt_SE.ONLY <- rda(allele_freqs_casefilt_SE.ONLY ~ .,  env.full) 
+RDA_casefilt_CA.CASE <- rda(allele_freqs_casefilt_CA.CASE ~ .,  env.full) 
+RDA_casefilt_SE.CA <- rda(allele_freqs_casefilt_SE.CA ~ .,  env.full) 
+RDA_casefilt_SE.CASE.CA <- rda(allele_freqs_casefilt_SE.CASE.CA ~ .,  env.full) 
+
+## adjusted R squared of full. model
+adjR2.RDA_casefilt_CASE <- RsquareAdj(RDA_casefilt_CASE)$adj.r.squared
+adjR2.RDA_casefilt_SEI <- RsquareAdj(RDA_casefilt_SEI)$adj.r.squared
+adjR2.RDA_casefilt_CAI <- RsquareAdj(RDA_casefilt_CAI)$adj.r.squared
+adjR2.RDA_casefilt_SECASE <- RsquareAdj(RDA_casefilt_SECASE)$adj.r.squared
+adjR2.RDA_casefilt <- RsquareAdj(RDA_casefilt)$adj.r.squared
+adjR2.RDA_casefilt_I <- RsquareAdj(RDA_casefilt_I)$adj.r.squared
+
+adjR2.RDA_casefilt_SE.FACTOR <- RsquareAdj(RDA_casefilt_SE.FACTOR)$adj.r.squared
+adjR2.RDA_casefilt_CA.FACTOR <- RsquareAdj(RDA_casefilt_CA.FACTOR)$adj.r.squared
+adjR2.RDA_casefilt_CA.ONLY <- RsquareAdj(RDA_casefilt_CA.ONLY)$adj.r.squared
+adjR2.RDA_casefilt_CASE.ONLY <- RsquareAdj(RDA_casefilt_CASE.ONLY)$adj.r.squared
+adjR2.RDA_casefilt_SE.ONLY <- RsquareAdj(RDA_casefilt_SE.ONLY)$adj.r.squared
+adjR2.RDA_casefilt_CA.CASE <- RsquareAdj(RDA_casefilt_CA.CASE)$adj.r.squared
+adjR2.RDA_casefilt_SE.CA <- RsquareAdj(RDA_casefilt_SE.CA)$adj.r.squared
+adjR2.RDA_casefilt_SE.CASE.CA <- RsquareAdj(RDA_casefilt_SE.CASE.CA)$adj.r.squared
+```
+
+```{r} 
+# Running ordiR2step to identify significant environmental variables in the model 
+mod_casefilt_CASE <- ordiR2step(RDA0_casefilt_CASE, scope = formula(RDA_casefilt_CASE), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r}
+mod_casefilt_SEI <- ordiR2step(RDA0_casefilt_SEI, scope = formula(RDA_casefilt_SEI), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r}
+mod_casefilt_CAI <- ordiR2step(RDA0_casefilt_CAI, scope = formula(RDA_casefilt_CAI), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r}
+mod_casefilt_SECASE <- ordiR2step(RDA0_casefilt_SECASE, scope = formula(RDA_casefilt_SECASE), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r}
+mod_casefilt <- ordiR2step(RDA0_casefilt, scope = formula(RDA_casefilt), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r}
+mod_casefilt_I <- ordiR2step(RDA0_casefilt_I, scope = formula(RDA_casefilt_I), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r}
+mod_casefilt_SE.FACTOR <- ordiR2step(RDA0_casefilt_SE.FACTOR, scope = formula(RDA_casefilt_SE.FACTOR), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r}
+mod_casefilt_CA.FACTOR <- ordiR2step(RDA0_casefilt_CA.FACTOR, scope = formula(RDA_casefilt_CA.FACTOR), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r}
+mod_casefilt_CA.ONLY <- ordiR2step(RDA0_casefilt_CA.ONLY, scope = formula(RDA_casefilt_CA.ONLY), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r}
+mod_casefilt_CASE.ONLY <- ordiR2step(RDA0_casefilt_CASE.ONLY, scope = formula(RDA_casefilt_CASE.ONLY), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r}
+mod_casefilt_SE.ONLY <- ordiR2step(RDA0_casefilt_SE.ONLY, scope = formula(RDA_casefilt_SE.ONLY), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r}
+mod_casefilt_CA.CASE <- ordiR2step(RDA0_casefilt_CA.CASE, scope = formula(RDA_casefilt_CA.CASE), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r}
+mod_casefilt_SE.CA <- ordiR2step(RDA0_casefilt_SE.CA, scope = formula(RDA_casefilt_SE.CA), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r}
+mod_casefilt_SE.CASE.CA <- ordiR2step(RDA0_casefilt_SE.CASE.CA, scope = formula(RDA_casefilt_SE.CASE.CA), Pin = 0.1, permutations = 1000, R2scope = FALSE, direction = "both")
+```
+
+```{r, include=FALSE}
+# Use forward selection to identify significant environmental variables
+Y_casefilt_CASE <- allele_freqs_casefilt_CASE
+Y_casefilt_SEI <- allele_freqs_casefilt_SEI
+Y_casefilt_CAI <- allele_freqs_casefilt_CAI
+Y_casefilt_SECASE <- allele_freqs_casefilt_SECASE
+Y_casefilt <- allele_freqs_casefilt
+Y_casefilt_I <- allele_freqs_casefilt_I
+
+Y_casefilt_SE.FACTOR  <- allele_freqs_casefilt_SE.FACTOR 
+Y_casefilt_CA.FACTOR  <- allele_freqs_casefilt_CA.FACTOR 
+Y_casefilt_CA.ONLY  <- allele_freqs_casefilt_CA.ONLY 
+Y_casefilt_CASE.ONLY  <- allele_freqs_casefilt_CASE.ONLY 
+Y_casefilt_SE.ONLY  <- allele_freqs_casefilt_SE.ONLY 
+Y_casefilt_CA.CASE  <- allele_freqs_casefilt_CA.CASE 
+Y_casefilt_SE.CA  <- allele_freqs_casefilt_SE.CA 
+Y_casefilt_SE.CASE.CA  <- allele_freqs_casefilt_SE.CASE.CA 
+
+X_casefilt <- env.z
+```
+
+```{r}
+env.for_casefilt_CASE <- forward.sel(Y_casefilt_CASE, X_casefilt, alpha = TRUE)
+env.for_casefilt_CASE
+```
+
+```{r}
+env.for_casefilt_SEI <- forward.sel(Y_casefilt_SEI, X_casefilt, alpha = TRUE)
+env.for_casefilt_SEI
+```
+
+```{r}
+env.for_casefilt_CAI <- forward.sel(Y_casefilt_CAI, X_casefilt, alpha = TRUE)
+env.for_casefilt_CAI
+```
+
+```{r}
+env.for_casefilt_SECASE <- forward.sel(Y_casefilt_SECASE, X_casefilt, alpha = TRUE)
+env.for_casefilt_SECASE
+```
+
+```{r}
+env.for_casefilt <- forward.sel(Y_casefilt, X_casefilt, alpha = TRUE)
+env.for_casefilt
+```
+
+```{r}
+env.for_casefilt_I <- forward.sel(Y_casefilt_I, X_casefilt, alpha = TRUE)
+env.for_casefilt_I
+```
+
+```{r}
+env.for_casefilt_SE.FACTOR <- forward.sel(Y_casefilt_SE.FACTOR, X_casefilt, alpha = TRUE)
+env.for_casefilt_SE.FACTOR
+```
+
+```{r}
+env.for_casefilt_CA.FACTOR <- forward.sel(Y_casefilt_CA.FACTOR, X_casefilt, alpha = TRUE)
+env.for_casefilt_CA.FACTOR
+```
+
+```{r}
+env.for_casefilt_CA.ONLY <- forward.sel(Y_casefilt_CA.ONLY, X_casefilt, alpha = TRUE)
+env.for_casefilt_CA.ONLY
+```
+
+```{r}
+env.for_casefilt_CASE.ONLY <- forward.sel(Y_casefilt_CASE.ONLY, X_casefilt, alpha = TRUE)
+env.for_casefilt_CASE.ONLY
+```
+
+```{r}
+env.for_casefilt_SE.ONLY <- forward.sel(Y_casefilt_SE.ONLY, X_casefilt, alpha = TRUE)
+env.for_casefilt_SE.ONLY
+```
+
+```{r}
+env.for_casefilt_CA.CASE <- forward.sel(Y_casefilt_CA.CASE, X_casefilt, alpha = TRUE)
+env.for_casefilt_CA.CASE
+```
+
+```{r}
+env.for_casefilt_SE.CA <- forward.sel(Y_casefilt_SE.CA, X_casefilt, alpha = TRUE)
+env.for_casefilt_SE.CA
+```
+
+```{r}
+env.for_casefilt_SE.CASE.CA <- forward.sel(Y_casefilt_SE.CASE.CA, X_casefilt, alpha = TRUE)
+env.for_casefilt_SE.CASE.CA
+```
+
+```{r}
+# Use forward selection to identify significant dbmems
+dbmem.for_casefilt_CASE <- forward.sel(Y = allele_freqs_casefilt_CASE, X = dbmem.raw, alpha = TRUE)
+dbmem.for_casefilt_SEI <- forward.sel(Y = allele_freqs_casefilt_SEI, X = dbmem.raw, alpha = TRUE)
+dbmem.for_casefilt_CAI <- forward.sel(Y = allele_freqs_casefilt_CAI, X = dbmem.raw, alpha = TRUE)
+dbmem.for_casefilt_SECASE <- forward.sel(Y = allele_freqs_casefilt_SECASE, X = dbmem.raw, alpha = TRUE)
+dbmem.for_casefilt <- forward.sel(Y = allele_freqs_casefilt, X = dbmem.raw, alpha = TRUE)
+dbmem.for_casefilt_I <- forward.sel(Y = allele_freqs_casefilt_I, X = dbmem.raw, alpha = TRUE)
+
+dbmem.for_casefilt_SE.FACTOR  <- forward.sel(Y = allele_freqs_casefilt_SE.FACTOR, X = dbmem.raw, alpha = TRUE)
+dbmem.for_casefilt_CA.FACTOR  <- forward.sel(Y = allele_freqs_casefilt_CA.FACTOR, X = dbmem.raw, alpha = TRUE)
+dbmem.for_casefilt_CA.ONLY  <-   forward.sel(Y = allele_freqs_casefilt_CA.ONLY, X = dbmem.raw, alpha = TRUE)
+dbmem.for_casefilt_CASE.ONLY  <- forward.sel(Y = allele_freqs_casefilt_CASE.ONLY, X = dbmem.raw, alpha = TRUE)
+dbmem.for_casefilt_SE.ONLY  <-   forward.sel(Y = allele_freqs_casefilt_SE.ONLY, X = dbmem.raw, alpha = TRUE)
+dbmem.for_casefilt_CA.CASE <-    forward.sel(Y = allele_freqs_casefilt_CA.CASE, X = dbmem.raw, alpha = TRUE)
+dbmem.for_casefilt_SE.CA  <-     forward.sel(Y = allele_freqs_casefilt_SE.CA, X = dbmem.raw, alpha = TRUE)
+dbmem.for_casefilt_SE.CASE.CA <- forward.sel(Y = allele_freqs_casefilt_SE.CASE.CA, X = dbmem.raw, alpha = TRUE)
+```
+
+### Running the Redundancy analysis
+
+**Prepping for plotting** 
+
+```{r, include=FALSE}
+# Create a data frame to correctly color regions
+# Row names are the same across all allele frequency data sets  
+col_dframe = data.frame("site" = c("BAR","BIS","GB","KIC","MCD","PVD"))
+
+# Function to add regional labels to dataframe
+addregion_6pops = function(x){
+  # If pop label is present function will output the region
+  if(x=="BAR") y = " Barrington "
+  if(x=="BIS") y = " Bissel Cove "
+  if(x=="GB") y = " Greenwich Bay "
+  if(x=="KIC") y = " Kickemuit "
+  if(x=="MCD") y = " Donovan Marsh "
+  if(x=="PVD") y = " Providence "
+  return(y)
+}
+
+# Add regional labels
+col_dframe$region = sapply(col_dframe$site, addregion_6pops)
+
+# Add factor levels
+region_order_6pops = c(" Barrington "," Bissel Cove "," Greenwich Bay "," Kickemuit "," Donovan Marsh ", " Providence ")
+col_dframe$region = factor(col_dframe$region, levels = region_order_6pops)
+```
+
+```{r, include=FALSE}
+# Create color scheme
+# green=#7FC97F, blue = #00008B, orange=#FF7F00, purple=#9A32CD, pink=#FF1493, cyan=#00FFFF
+cols_6pops = c("#7FC97F","#00008B","#FF7F00","#9A32CD","#FF1493","#00FFFF")
+```
+
+**Running RDA and plotting** 
+### CASE
+```{r, echo=FALSE}
+# Perform RDA with all significant variables
+
+if (grepl("~ 1", deparse(mod_casefilt_CASE$call))) {
+  print("No significant model")
+  
+  # Construct the formula dynamically
+  formula_dynamic <- as.formula(paste("allele_freqs_casefilt ~", env.for_casefilt_CASE$variables[1]))
+  
+  # Run the rda model with the dynamically created formula
+  rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+  
+} else {
+  # Use the model call from mod_casefilt_SEI if it's not a null model
+  rda_casefilt <- eval(mod_casefilt_CASE$call)
+}
+
+# Model summaries
+RsquareAdj(rda_casefilt) # adjusted Rsquared 
+anova.cca(rda_casefilt, permutations = 1000) # full model
+anova.cca(rda_casefilt, permutations = 1000, by="margin") # per variable 
+```
+
+```{r, include =FALSE}
+# Variance explained by each canonical axis
+summary(eigenvals(rda_casefilt, model = "constrained"))
+vif.cca(rda_casefilt) # variance inflation factor (<10 OK)
+```
+
+```{r, echo=FALSE}
+# Visualize results of RDA
+#png("rda_casefilt.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda_casefilt, type="n", scaling = 3, main= "CASE RDA")
+# SITES
+points(rda_casefilt, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(rda_casefilt, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda_casefilt, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda_casefilt, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda_casefilt)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 1)
+# dev.off()
+```
+
+
+## Correspondence analysis-based RDA
+
+```{r, include=FALSE}
+# Run a CA on the genind object
+obj_out_casefilt <- genind2genpop(rad_casefilt.filt_CASE)
+ca1_out_casefilt <- dudi.coa(tab(obj_out_casefilt), scannf=FALSE, nf=10)
+eig_ca1_out_casefilt <- round((ca1_out_casefilt$eig / (sum(ca1_out_casefilt$eig))) * 100, 2)
+out_ca_casefilt <- ca1_out_casefilt$li[,1:2]
+rownames(out_ca_casefilt) <- popNames(rad_casefilt.filt_CASE)
+```
+
+```{r, include=FALSE}
+out_ca_casefilt <- out_ca_casefilt %>%
+  rownames_to_column(var = "Population") %>%
+  mutate(Population = factor(Population, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  dplyr::select(Population, Axis1, Axis2)
+```
+
+```{r, include=FALSE}
+strata_ca_casefilt <- strata_6pops %>%
+  left_join(out_ca_casefilt, by = "Population")
+```
+
+```{r, echo=FALSE}
+# Plot the CA
+CASE_Sal_COA <- ggplot(strata_ca_casefilt, aes(x = Axis1, y = Axis2, colour = Population)) +
+  geom_point(size = 6, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops,
+                      name = "") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14)) +
+  ggtitle("CASE")+
+  labs(x = paste("", "Axis 1: ", eig_ca1_out_casefilt[1], "%"), y = paste("", "Axis 2: ", eig_ca1_out_casefilt[2], "%"))
+
+CASE_Sal_COA
+```
+
+```{r, echo=FALSE}
+# Plot CA1 versus June_Salinity_Avg 
+
+# Assuming `variable_name` is "June_Salinity_Avg"
+variable_name <- env.for_casefilt_CASE$variables[1]
+
+# Fit the linear model
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+model_summary <- summary(sal_mod_casefilt)
+
+# Extract adjusted R2 and p-value
+adj_r2 <- signif(model_summary$adj.r.squared, 3)
+p_value <- signif(model_summary$coefficients[2,4], 2)
+
+# Use ggplot with the variable name
+CASE_Sal_LM <- strata_ca_casefilt %>%
+  ggplot(aes(y = Axis1, x = .data[[variable_name]])) +  # Use .data[[variable_name]]
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 4) +
+  scale_color_manual(values = cols_6pops) +
+  ggtitle("CASE") +
+  theme_minimal() +
+  labs(
+    y = "Average Salinity",
+    x = "Axis 1"
+  ) +
+  annotate("text", 
+           x = max(strata_ca_casefilt[[variable_name]]),  # Adjust this value for horizontal gap
+           y = max(strata_ca_casefilt$Axis2) + 0.1,  # Adjust this value for vertical gap
+           label = paste("Adj R² =", adj_r2, "\np =", p_value),
+           hjust = 1, vjust = 1)
+
+CASE_Sal_LM
+```
+
+```{r, echo=FALSE}
+# Linear model for CA1 versus top variables 
+
+# Assuming you want the first variable in `env.for_casefilt` to be used
+variable_name <- env.for_casefilt_CASE$variables[1]
+
+# Dynamically construct the formula
+as.formula(paste("Axis1 ~", variable_name))
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+summary(sal_mod_casefilt)
+```
+
+
+## SECASE
+```{r, echo=FALSE}
+# Perform RDA with all significant variables
+
+if (grepl("~ 1", deparse(mod_casefilt_SECASE$call))) {
+  print("No significant model")
+  
+  # Construct the formula dynamically
+  formula_dynamic <- as.formula(paste("allele_freqs_casefilt ~", env.for_casefilt_SECASE$variables[1]))
+  
+  # Run the rda model with the dynamically created formula
+  rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+  
+} else {
+  # Use the model call from mod_casefilt_SEI if it's not a null model
+  rda_casefilt <- eval(mod_casefilt_SECASE$call)
+}
+
+# Use the formula in the rda() function
+#rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+#rda_casefilt <- eval(mod_casefilt_SEI$call)
+#rda_casefilt = rda(allele_freqs_casefilt ~ as.text(env.for_casefilt$variables[1]), data = env.full, scale = TRUE)
+rda_casefilt
+
+# Model summaries
+RsquareAdj(rda_casefilt) # adjusted Rsquared 
+anova.cca(rda_casefilt, permutations = 1000) # full model
+anova.cca(rda_casefilt, permutations = 1000, by="margin") # per variable 
+```
+
+```{r, include =FALSE}
+# Variance explained by each canonical axis
+summary(eigenvals(rda_casefilt, model = "constrained"))
+vif.cca(rda_casefilt) # variance inflation factor (<10 OK)
+```
+
+
+```{r, echo=FALSE}
+# Visualize results of RDA
+#png("rda_casefilt.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda_casefilt, type="n", scaling = 3, main= "CASE and SE")
+# SITES
+points(rda_casefilt, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(rda_casefilt, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda_casefilt, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda_casefilt, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda_casefilt)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 1)
+# dev.off()
+```
+
+
+### Correspondence analysis-based RDA
+```{r, include=FALSE}
+# Run a CA on the genind object
+obj_out_casefilt <- genind2genpop(rad_casefilt.filt_SECASE)
+ca1_out_casefilt <- dudi.coa(tab(obj_out_casefilt), scannf=FALSE, nf=10)
+eig_ca1_out_casefilt <- round((ca1_out_casefilt$eig / (sum(ca1_out_casefilt$eig))) * 100, 2)
+out_ca_casefilt <- ca1_out_casefilt$li[,1:2]
+rownames(out_ca_casefilt) <- popNames(rad_casefilt.filt_SECASE)
+```
+
+```{r, include=FALSE}
+out_ca_casefilt <- out_ca_casefilt %>%
+  rownames_to_column(var = "Population") %>%
+  mutate(Population = factor(Population, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  dplyr::select(Population, Axis1, Axis2)
+```
+
+```{r, include=FALSE}
+strata_ca_casefilt <- strata_6pops %>%
+  left_join(out_ca_casefilt, by = "Population")
+```
+
+```{r, echo=FALSE}
+# Plot the CA
+ggplot(strata_ca_casefilt, aes(x = Axis1, y = Axis2, colour = Population)) +
+  geom_point(size = 6, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops,
+                      name = "") +
+  ggtitle("CASE and SE") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14)) +
+  labs(x = paste("", "Axis 1: ", eig_ca1_out_casefilt[1], "%"), y = paste("", "Axis 2: ", eig_ca1_out_casefilt[2], "%"))
+```
+
+```{r, echo=FALSE}
+# Plot CA1 versus June_Salinity_Avg 
+
+# Assuming `variable_name` is "June_Salinity_Avg"
+variable_name <- env.for_casefilt_SECASE$variables[1]
+
+# Use ggplot with the variable name
+strata_ca_casefilt %>%
+  ggplot(aes(y = Axis1, x = .data[[variable_name]])) +  # Use .data[[variable_name]]
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 4) +
+  scale_color_manual(values = cols_6pops) +
+  theme_minimal() +
+  ggtitle("SE and CASE") +
+  labs(
+    y = "CA1",
+    x = variable_name
+  )
+```
+
+```{r, echo=FALSE}
+# Linear model for CA1 versus top variables 
+
+# Assuming you want the first variable in `env.for_casefilt` to be used
+variable_name <- env.for_casefilt_SECASE$variables[1]
+
+# Dynamically construct the formula
+as.formula(paste("Axis1 ~", variable_name))
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+summary(sal_mod_casefilt)
+```
+
+## SE
+
+```{r, echo=FALSE}
+# Perform RDA with all significant variables
+
+if (grepl("~ 1", deparse(mod_casefilt_SEI$call))) {
+  print("No significant model")
+  
+  # Construct the formula dynamically
+  formula_dynamic <- as.formula(paste("allele_freqs_casefilt ~", env.for_casefilt_SEI$variables[1]))
+  
+  # Run the rda model with the dynamically created formula
+  rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+  
+} else {
+  # Use the model call from mod_casefilt_SEI if it's not a null model
+  rda_casefilt <- eval(mod_casefilt_SEI$call)
+}
+
+# Use the formula in the rda() function
+#rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+#rda_casefilt <- eval(mod_casefilt_SEI$call)
+#rda_casefilt = rda(allele_freqs_casefilt ~ as.text(env.for_casefilt$variables[1]), data = env.full, scale = TRUE)
+rda_casefilt
+
+# Model summaries
+RsquareAdj(rda_casefilt) # adjusted Rsquared 
+vif.cca(rda_casefilt) # variance inflation factor (<10 OK)
+anova.cca(rda_casefilt, permutations = 1000) # full model
+anova.cca(rda_casefilt, permutations = 1000, by="margin") # per variable 
+
+# Variance explained by each canonical axis
+summary(eigenvals(rda_casefilt, model = "constrained"))
+```
+
+```{r, echo=FALSE}
+# Visualize results of RDA
+#png("rda_casefilt.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda_casefilt, type="n", scaling = 3, main ="SE")
+# SITES
+points(rda_casefilt, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(rda_casefilt, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda_casefilt, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda_casefilt, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda_casefilt)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 1)
+# dev.off()
+```
+
+
+## Correspondence analysis-based RDA
+```{r, include=FALSE}
+# Run a CA on the genind object
+obj_out_casefilt <- genind2genpop(rad_casefilt.filt_SEI)
+ca1_out_casefilt <- dudi.coa(tab(obj_out_casefilt), scannf=FALSE, nf=10)
+eig_ca1_out_casefilt <- round((ca1_out_casefilt$eig / (sum(ca1_out_casefilt$eig))) * 100, 2)
+out_ca_casefilt <- ca1_out_casefilt$li[,1:2]
+rownames(out_ca_casefilt) <- popNames(rad_casefilt.filt_SEI)
+```
+
+```{r, include=FALSE}
+out_ca_casefilt <- out_ca_casefilt %>%
+  rownames_to_column(var = "Population") %>%
+  mutate(Population = factor(Population, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  dplyr::select(Population, Axis1, Axis2)
+```
+
+```{r, include=FALSE}
+strata_ca_casefilt <- strata_6pops %>%
+  left_join(out_ca_casefilt, by = "Population")
+```
+
+```{r, echo=FALSE}
+# Plot the CA
+SE_Sal_COA <- ggplot(strata_ca_casefilt, aes(x = Axis1, y = Axis2, colour = Population)) +
+  geom_point(size = 6, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops,
+                      name = "") +
+  ggtitle("SE") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14)) +
+  labs(x = paste("", "Axis 1: ", eig_ca1_out_casefilt[1], "%"), y = paste("", "Axis 2: ", eig_ca1_out_casefilt[2], "%"))
+
+SE_Sal_COA
+```
+
+```{r, echo=FALSE}
+# Plot CA1 versus June_Salinity_Avg 
+
+# Assuming `variable_name` is "June_Salinity_Avg"
+variable_name <- env.for_casefilt_SEI$variables[1]
+
+# Fit the linear model
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+model_summary <- summary(sal_mod_casefilt)
+
+# Extract adjusted R2 and p-value
+adj_r2 <- signif(model_summary$adj.r.squared, 3)
+p_value <- signif(model_summary$coefficients[2,4], 2)
+
+# Use ggplot with the variable name
+SE_Sal_LM <- strata_ca_casefilt %>%
+  ggplot(aes(y = Axis1, x = .data[[variable_name]])) +  # Use .data[[variable_name]]
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 4) +
+  scale_color_manual(values = cols_6pops) +
+  ggtitle("SE") + 
+  theme_minimal() +
+  labs(
+    y = "Average Salinity",
+    x = "Axis 1"
+  ) +
+  annotate("text", 
+           x = min(strata_ca_casefilt[[variable_name]] + 2),  # Adjust this value for horizontal gap
+           y = max(strata_ca_casefilt$Axis2),  # Adjust this value for vertical gap
+           label = paste("Adj R² =", adj_r2, "\np =", p_value),
+           hjust = 1, vjust = 1)
+SE_Sal_LM
+```
+
+```{r, echo=FALSE}
+# Linear model for CA1 versus top variables 
+
+# Assuming you want the first variable in `env.for_casefilt` to be used
+variable_name <- env.for_casefilt_SEI$variables[1]
+
+# Dynamically construct the formula
+as.formula(paste("Axis1 ~", variable_name))
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+summary(sal_mod_casefilt)
+```
+
+## CA
+
+```{r, echo=FALSE}
+# Perform RDA with all significant variables
+
+if (grepl("~ 1", deparse(mod_casefilt_CAI$call))) {
+  print("No significant model")
+  
+  # Construct the formula dynamically
+  formula_dynamic <- as.formula(paste("allele_freqs_casefilt ~", env.for_casefilt_CAI$variables[1]))
+  
+  # Run the rda model with the dynamically created formula
+  rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+  
+} else {
+  # Use the model call from mod_casefilt_CAI if it's not a null model
+  rda_casefilt <- eval(mod_casefilt_CAI$call)
+}
+
+# Use the formula in the rda() function
+#rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+#rda_casefilt <- eval(mod_casefilt_CAI$call)
+#rda_casefilt = rda(allele_freqs_casefilt ~ as.text(env.for_casefilt$variables[1]), data = env.full, scale = TRUE)
+rda_casefilt
+
+# Model summaries
+RsquareAdj(rda_casefilt) # adjusted Rsquared 
+vif.cca(rda_casefilt) # variance inflation factor (<10 OK)
+anova.cca(rda_casefilt, permutations = 1000) # full model
+anova.cca(rda_casefilt, permutations = 1000, by="margin") # per variable 
+
+# Variance explained by each canonical axis
+summary(eigenvals(rda_casefilt, model = "constrained"))
+```
+
+```{r, echo=FALSE}
+# Visualize results of RDA
+#png("rda_casefilt.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda_casefilt, type="n", scaling = 3, main ="CA")
+# SITES
+points(rda_casefilt, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(rda_casefilt, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda_casefilt, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda_casefilt, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda_casefilt)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 1)
+# dev.off()
+```
+
+
+## Correspondence analysis-based RDA
+```{r, include=FALSE}
+# Run a CA on the genind object
+obj_out_casefilt <- genind2genpop(rad_casefilt.filt_CAI)
+ca1_out_casefilt <- dudi.coa(tab(obj_out_casefilt), scannf=FALSE, nf=10)
+eig_ca1_out_casefilt <- round((ca1_out_casefilt$eig / (sum(ca1_out_casefilt$eig))) * 100, 2)
+out_ca_casefilt <- ca1_out_casefilt$li[,1:2]
+rownames(out_ca_casefilt) <- popNames(rad_casefilt.filt_CAI)
+```
+
+```{r, include=FALSE}
+out_ca_casefilt <- out_ca_casefilt %>%
+  rownames_to_column(var = "Population") %>%
+  mutate(Population = factor(Population, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  dplyr::select(Population, Axis1, Axis2)
+```
+
+```{r, include=FALSE}
+strata_ca_casefilt <- strata_6pops %>%
+  left_join(out_ca_casefilt, by = "Population")
+```
+
+```{r, echo=FALSE}
+# Plot the CA
+CA_Sal_COA <- ggplot(strata_ca_casefilt, aes(x = Axis1, y = Axis2, colour = Population)) +
+  geom_point(size = 6, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops,
+                      name = "") +
+    ggtitle("CA") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14)) +
+  labs(x = paste("", "Axis 1: ", eig_ca1_out_casefilt[1], "%"), y = paste("", "Axis 2: ", eig_ca1_out_casefilt[2], "%"))
+CA_Sal_COA
+```
+
+```{r, echo=FALSE}
+# Plot CA1 versus June_Salinity_Min 
+
+# Assuming `variable_name` is "June_Salinity_Avg"
+variable_name <- env.for_casefilt_CAI$variables[1]
+
+# Fit the linear model
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+model_summary <- summary(sal_mod_casefilt)
+
+# Extract adjusted R2 and p-value
+adj_r2 <- signif(model_summary$adj.r.squared, 3)
+p_value <- signif(model_summary$coefficients[2,4], 2)
+
+# Use ggplot with the variable name
+CA_Sal_LM <- strata_ca_casefilt %>%
+  ggplot(aes(y = Axis1, x = .data[[variable_name]])) +  # Use .data[[variable_name]]
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 4) +
+  scale_color_manual(values = cols_6pops) +
+  ggtitle("CA") + 
+  theme_minimal() +
+  labs(
+    y = "Minimum Salinity",
+    x = "Axis 1"
+  ) +
+  annotate("text", 
+           x = max(strata_ca_casefilt[[variable_name]] - 0.1),  # Adjust this value for horizontal gap
+           y = max(strata_ca_casefilt$Axis2) + 0.1 ,  # Adjust this value for vertical gap
+           label = paste("Adj R² =", adj_r2, "\np =", p_value),
+           hjust = 1, vjust = 1)
+CA_Sal_LM
+```
+
+```{r, echo=FALSE}
+# Linear model for CA1 versus top variables 
+
+# Assuming you want the first variable in `env.for_casefilt` to be used
+variable_name <- env.for_casefilt_CAI$variables[1]
+
+# Dynamically construct the formula
+as.formula(paste("Axis1 ~", variable_name))
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+summary(sal_mod_casefilt)
+```
+
+
+## SE.FACTOR
+
+```{r, echo=FALSE}
+# Perform RDA with all significant variables
+
+if (grepl("~ 1", deparse(mod_casefilt_SE.FACTOR$call))) {
+  print("No significant model")
+  
+  # Construct the formula dynamically
+  formula_dynamic <- as.formula(paste("allele_freqs_casefilt ~", env.for_casefilt_SE.FACTOR$variables[1]))
+  
+  # Run the rda model with the dynamically created formula
+  rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+  
+} else {
+  # Use the model call from mod_casefilt_SEI if it's not a null model
+  rda_casefilt <- eval(mod_casefilt_SE.FACTOR$call)
+}
+
+
+rda_casefilt
+
+# Model summaries
+RsquareAdj(rda_casefilt) # adjusted Rsquared 
+vif.cca(rda_casefilt) # variance inflation factor (<10 OK)
+anova.cca(rda_casefilt, permutations = 1000) # full model
+anova.cca(rda_casefilt, permutations = 1000, by="margin") # per variable 
+
+# Variance explained by each canonical axis
+summary(eigenvals(rda_casefilt, model = "constrained"))
+```
+
+```{r, echo=FALSE}
+# Visualize results of RDA
+#png("rda_casefilt.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda_casefilt, type="n", scaling = 3, main ="SE.FACTOR")
+# SITES
+points(rda_casefilt, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(rda_casefilt, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda_casefilt, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda_casefilt, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda_casefilt)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 1)
+# dev.off()
+```
+
+
+## Correspondence analysis-based RDA
+```{r, include=FALSE}
+# Run a CA on the genind object
+obj_out_casefilt <- genind2genpop(rad_casefilt.filt_SE.FACTOR)
+ca1_out_casefilt <- dudi.coa(tab(obj_out_casefilt), scannf=FALSE, nf=10)
+eig_ca1_out_casefilt <- round((ca1_out_casefilt$eig / (sum(ca1_out_casefilt$eig))) * 100, 2)
+out_ca_casefilt <- ca1_out_casefilt$li[,1:2]
+rownames(out_ca_casefilt) <- popNames(rad_casefilt.filt_CA.FACTOR)
+```
+
+```{r, include=FALSE}
+out_ca_casefilt <- out_ca_casefilt %>%
+  rownames_to_column(var = "Population") %>%
+  mutate(Population = factor(Population, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  dplyr::select(Population, Axis1, Axis2)
+```
+
+```{r, include=FALSE}
+strata_ca_casefilt <- strata_6pops %>%
+  left_join(out_ca_casefilt, by = "Population")
+```
+
+```{r, echo=FALSE}
+# Plot the CA
+SE_FACTOR_Sal_COA <- ggplot(strata_ca_casefilt, aes(x = Axis1, y = Axis2, colour = Population)) +
+  geom_point(size = 6, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops,
+                      name = "") +
+    ggtitle("Sewage Effluent (Factor)") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  theme(plot.title = element_text(size = 14)) +
+  labs(x = paste("", "Axis 1: ", eig_ca1_out_casefilt[1], "%"), y = paste("", "Axis 2: ", eig_ca1_out_casefilt[2], "%"))
+SE_FACTOR_Sal_COA
+```
+
+```{r, echo=FALSE}
+# Plot CA1 versus June_Salinity_Avg 
+
+# Assuming `variable_name` is "June_Salinity_Avg"
+variable_name <- env.for_casefilt_SE.FACTOR$variables[1]
+
+# Fit the linear model
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+model_summary <- summary(sal_mod_casefilt)
+
+# Extract adjusted R2 and p-value
+adj_r2 <- signif(model_summary$adj.r.squared, 3)
+p_value <- signif(model_summary$coefficients[2,4], 2)
+
+# Use ggplot with the variable name
+SE_FACTOR_Sal_LM <- strata_ca_casefilt %>%
+  ggplot(aes(y = .data[[variable_name]], x = Axis1)) +  # Use .data[[variable_name]]
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 4) +
+  scale_color_manual(values = cols_6pops) +
+  # ggtitle("SE.FACTOR") + 
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(
+    y = "Average Salinity",
+    x = "Axis 1"
+  ) +
+  annotate("text", 
+           x = min(strata_ca_casefilt$Axis1),  # Adjust this value for horizontal gap
+           y = max(strata_ca_casefilt[[variable_name]] + 3),  # Adjust this value for vertical gap
+           label = paste("Adj R² =", adj_r2, "\np =", p_value),
+           hjust = 0, vjust = 1)
+SE_FACTOR_Sal_LM
+```
+
+```{r}
+# Jon's plot
+png(filename="SE_TotalRDA.png", type="cairo",units="px", width=4000, height=3000, res=300, bg="transparent")
+strata_ca_casefilt %>%
+  ggplot(aes(y = Axis1, x = .data[[variable_name]])) +  # Use .data[[variable_name]]
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1.5) +
+  geom_point(aes(color = Population), size = 6) +
+  scale_color_manual(values = cols_6pops) +
+  theme_minimal() +
+  ggtitle("SE") +
+  labs(y = "CA1",x = variable_name) +
+  theme_black()
+dev.off()
+```
+
+```{r, echo=FALSE}
+# Linear model for CA1 versus top variables 
+
+# Assuming you want the first variable in `env.for_casefilt` to be used
+variable_name <- env.for_casefilt_SE.FACTOR$variables[1]
+
+# Dynamically construct the formula
+as.formula(paste("Axis1 ~", variable_name))
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+summary(sal_mod_casefilt)
+```
+
+## CA.FACTOR
+
+```{r, echo=FALSE}
+# Perform RDA with all significant variables
+
+if (grepl("~ 1", deparse(mod_casefilt_CA.FACTOR$call))) {
+  print("No significant model")
+  
+  # Construct the formula dynamically
+  formula_dynamic <- as.formula(paste("allele_freqs_casefilt ~", env.for_casefilt_CA.FACTOR$variables[1]))
+  
+  # Run the rda model with the dynamically created formula
+  rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+  
+} else {
+  # Use the model call from mod_casefilt_SEI if it's not a null model
+  rda_casefilt <- eval(mod_casefilt_CA.FACTOR$call)
+}
+
+# Use the formula in the rda() function
+#rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+#rda_casefilt <- eval(mod_casefilt_SEI$call)
+#rda_casefilt = rda(allele_freqs_casefilt ~ as.text(env.for_casefilt$variables[1]), data = env.full, scale = TRUE)
+rda_casefilt
+
+# Model summaries
+RsquareAdj(rda_casefilt) # adjusted Rsquared 
+vif.cca(rda_casefilt) # variance inflation factor (<10 OK)
+anova.cca(rda_casefilt, permutations = 1000) # full model
+anova.cca(rda_casefilt, permutations = 1000, by="margin") # per variable 
+
+# Variance explained by each canonical axis
+summary(eigenvals(rda_casefilt, model = "constrained"))
+```
+
+```{r, echo=FALSE}
+# Visualize results of RDA
+#png("rda_casefilt.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda_casefilt, type="n", scaling = 3, main ="CA.FACTOR")
+# SITES
+points(rda_casefilt, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(rda_casefilt, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda_casefilt, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda_casefilt, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda_casefilt)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 1)
+# dev.off()
+```
+
+
+## Correspondence analysis-based RDA
+```{r, include=FALSE}
+# Run a CA on the genind object
+obj_out_casefilt <- genind2genpop(rad_casefilt.filt_CA.FACTOR)
+ca1_out_casefilt <- dudi.coa(tab(obj_out_casefilt), scannf=FALSE, nf=10)
+eig_ca1_out_casefilt <- round((ca1_out_casefilt$eig / (sum(ca1_out_casefilt$eig))) * 100, 2)
+out_ca_casefilt <- ca1_out_casefilt$li[,1:2]
+rownames(out_ca_casefilt) <- popNames(rad_casefilt.filt_CA.FACTOR)
+```
+
+```{r, include=FALSE}
+out_ca_casefilt <- out_ca_casefilt %>%
+  rownames_to_column(var = "Population") %>%
+  mutate(Population = factor(Population, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  dplyr::select(Population, Axis1, Axis2)
+```
+
+```{r, include=FALSE}
+strata_ca_casefilt <- strata_6pops %>%
+  left_join(out_ca_casefilt, by = "Population")
+```
+
+```{r, echo=FALSE}
+# Plot the CA
+CA_FACTOR_PC2_COA <- ggplot(strata_ca_casefilt, aes(x = Axis1, y = Axis2, colour = Population)) +
+  geom_point(size = 6, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops,
+                      name = "") +
+    ggtitle("Coastal Acidification (Factor)") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  theme(plot.title = element_text(size = 14)) +
+  labs(x = paste("", "Axis 1: ", eig_ca1_out_casefilt[1], "%"), y = paste("", "Axis 2: ", eig_ca1_out_casefilt[2], "%"))
+CA_FACTOR_PC2_COA
+```
+
+```{r, echo=FALSE}
+# Plot CA1 versus June_Salinity_Avg 
+
+# Assuming `variable_name` is "June_Salinity_Avg"
+variable_name <- env.for_casefilt_CA.FACTOR$variables[1]
+
+# Fit the linear model
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+model_summary <- summary(sal_mod_casefilt)
+
+# Extract adjusted R2 and p-value
+adj_r2 <- signif(model_summary$adj.r.squared, 3)
+p_value <- signif(model_summary$coefficients[2,4], 2)
+
+# Use ggplot with the variable name
+CA_FACTOR_PC2_LM <- strata_ca_casefilt %>%
+  ggplot(aes(y = .data[[variable_name]], x = Axis1)) +  # Use .data[[variable_name]]
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 4) +
+  scale_color_manual(values = cols_6pops) +
+  #ggtitle("CA.FACTOR") + 
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(
+    y = "PC2",
+    x = "Axis 1"
+  ) +
+  annotate("text", 
+           x = max(strata_ca_casefilt$Axis1) - 0.04,  # Adjust this value for horizontal gap
+           y = max(strata_ca_casefilt[[variable_name]]+2),  # Adjust this value for vertical gap
+           label = paste("Adj R² =", adj_r2, "\np =", p_value),
+           hjust = 0, vjust = 1)
+CA_FACTOR_PC2_LM
+```
+
+```{r}
+# Jon's plot
+png(filename="CAFactor_TotalRDA.png", type="cairo",units="px", width=4000, height=3000, res=300, bg="transparent")
+strata_ca_casefilt %>%
+  ggplot(aes(y = Axis1, x = .data[[variable_name]])) +  # Use .data[[variable_name]]
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1.5) +
+  geom_point(aes(color = Population), size = 6) +
+  scale_color_manual(values = cols_6pops) +
+  theme_minimal() +
+  ggtitle("Coastal Acidification") +
+  labs(y = "CA1",x = variable_name) +
+  theme_black()
+dev.off()
+```
+
+```{r, echo=FALSE}
+# Linear model for CA1 versus top variables 
+
+# Assuming you want the first variable in `env.for_casefilt` to be used
+variable_name <- env.for_casefilt_CA.FACTOR$variables[1]
+
+# Dynamically construct the formula
+as.formula(paste("Axis1 ~", variable_name))
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+summary(sal_mod_casefilt)
+```
+
+
+## CA.ONLY
+
+```{r, echo=FALSE}
+# Perform RDA with all significant variables
+
+if (grepl("~ 1", deparse(mod_casefilt_CA.ONLY$call))) {
+  print("No significant model")
+  
+  # Construct the formula dynamically
+  formula_dynamic <- as.formula(paste("allele_freqs_casefilt ~", env.for_casefilt_CA.ONLY$variables[1]))
+  
+  # Run the rda model with the dynamically created formula
+  rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+  
+} else {
+  # Use the model call from mod_casefilt_CA.ONLY if it's not a null model
+  rda_casefilt <- eval(mod_casefilt_CA.ONLY$call)
+}
+
+# Use the formula in the rda() function
+#rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+#rda_casefilt <- eval(mod_casefilt_CA.ONLY$call)
+#rda_casefilt = rda(allele_freqs_casefilt ~ as.text(env.for_casefilt$variables[1]), data = env.full, scale = TRUE)
+rda_casefilt
+
+# Model summaries
+RsquareAdj(rda_casefilt) # adjusted Rsquared 
+vif.cca(rda_casefilt) # variance inflation factor (<10 OK)
+anova.cca(rda_casefilt, permutations = 1000) # full model
+anova.cca(rda_casefilt, permutations = 1000, by="margin") # per variable 
+
+# Variance explained by each canonical axis
+summary(eigenvals(rda_casefilt, model = "constrained"))
+```
+
+```{r, echo=FALSE}
+# Visualize results of RDA
+#png("rda_casefilt.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda_casefilt, type="n", scaling = 3, main ="CA.ONLY")
+# SITES
+points(rda_casefilt, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(rda_casefilt, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda_casefilt, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda_casefilt, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda_casefilt)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 1)
+# dev.off()
+```
+
+
+## Correspondence analysis-based RDA
+```{r, include=FALSE}
+# Run a CA on the genind object
+obj_out_casefilt <- genind2genpop(rad_casefilt.filt_CA.ONLY)
+ca1_out_casefilt <- dudi.coa(tab(obj_out_casefilt), scannf=FALSE, nf=10)
+eig_ca1_out_casefilt <- round((ca1_out_casefilt$eig / (sum(ca1_out_casefilt$eig))) * 100, 2)
+out_ca_casefilt <- ca1_out_casefilt$li[,1:2]
+rownames(out_ca_casefilt) <- popNames(rad_casefilt.filt_CA.ONLY)
+```
+
+```{r, include=FALSE}
+out_ca_casefilt <- out_ca_casefilt %>%
+  rownames_to_column(var = "Population") %>%
+  mutate(Population = factor(Population, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  dplyr::select(Population, Axis1, Axis2)
+```
+
+```{r, include=FALSE}
+strata_ca_casefilt <- strata_6pops %>%
+  left_join(out_ca_casefilt, by = "Population")
+```
+
+```{r, echo=FALSE}
+# Plot the CA
+CA_ONLY_SAL_COA <- ggplot(strata_ca_casefilt, aes(x = Axis1, y = Axis2, colour = Population)) +
+  geom_point(size = 6, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops,
+                      name = "") +
+    ggtitle("Coastal Acidification (Only)") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  theme(plot.title = element_text(size = 14)) +
+  labs(x = paste("", "Axis 1: ", eig_ca1_out_casefilt[1], "%"), y = paste("", "Axis 2: ", eig_ca1_out_casefilt[2], "%"))
+CA_ONLY_SAL_COA
+```
+
+```{r, echo=FALSE}
+# Plot CA1 versus June_Salinity_Avg 
+
+# Assuming `variable_name` is "June_Salinity_Avg"
+variable_name <- env.for_casefilt_CA.ONLY$variables[1]
+
+# Fit the linear model
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+model_summary <- summary(sal_mod_casefilt)
+
+# Extract adjusted R2 and p-value
+adj_r2 <- signif(model_summary$adj.r.squared, 3)
+p_value <- signif(model_summary$coefficients[2,4], 2)
+
+# Use ggplot with the variable name
+CA_ONLY_SAL_LM <- strata_ca_casefilt %>%
+  ggplot(aes(y = .data[[variable_name]], x = Axis1)) +  # Use .data[[variable_name]]
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 4) +
+  scale_color_manual(values = cols_6pops) +
+  # ggtitle("CA.ONLY") + 
+  theme_minimal() +
+  theme(legend.position = "none") + 
+  labs(
+    y = "Minimum Salinity",
+    x = "Axis 1"
+  ) +
+  annotate("text", 
+           x = min(strata_ca_casefilt$Axis1),  # Adjust this value for horizontal gap
+           y = max(strata_ca_casefilt[[variable_name]]) + 7.5,  # Adjust this value for vertical gap
+           label = paste("Adj R² =", adj_r2, "\np =", p_value),
+           hjust = 0, vjust = 1)
+CA_ONLY_SAL_LM
+```
+
+```{r, echo=FALSE}
+# Linear model for CA1 versus top variables 
+
+# Assuming you want the first variable in `env.for_casefilt` to be used
+variable_name <- env.for_casefilt_CA.ONLY$variables[1]
+
+# Dynamically construct the formula
+as.formula(paste("Axis1 ~", variable_name))
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+summary(sal_mod_casefilt)
+```
+
+## CASE.ONLY 
+
+```{r, echo=FALSE}
+# Perform RDA with all significant variables
+
+if (grepl("~ 1", deparse(mod_casefilt_CASE.ONLY$call))) {
+  print("No significant model")
+  
+  # Construct the formula dynamically
+  formula_dynamic <- as.formula(paste("allele_freqs_casefilt ~", env.for_casefilt_CASE.ONLY$variables[1]))
+  
+  # Run the rda model with the dynamically created formula
+  rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+  
+} else {
+  # Use the model call from mod_casefilt_CASE.ONLY if it's not a null model
+  rda_casefilt <- eval(mod_casefilt_CASE.ONLY$call)
+}
+
+# Use the formula in the rda() function
+#rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+#rda_casefilt <- eval(mod_casefilt_CASE.ONLY$call)
+#rda_casefilt = rda(allele_freqs_casefilt ~ as.text(env.for_casefilt$variables[1]), data = env.full, scale = TRUE)
+rda_casefilt
+
+# Model summaries
+RsquareAdj(rda_casefilt) # adjusted Rsquared 
+vif.cca(rda_casefilt) # variance inflation factor (<10 OK)
+anova.cca(rda_casefilt, permutations = 1000) # full model
+anova.cca(rda_casefilt, permutations = 1000, by="margin") # per variable 
+
+# Variance explained by each canonical axis
+summary(eigenvals(rda_casefilt, model = "constrained"))
+```
+
+```{r, echo=FALSE}
+# Visualize results of RDA
+#png("rda_casefilt.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda_casefilt, type="n", scaling = 3, main ="CASE.ONLY")
+# SITES
+points(rda_casefilt, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(rda_casefilt, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda_casefilt, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda_casefilt, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda_casefilt)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 1)
+# dev.off()
+```
+
+
+## Correspondence analysis-based RDA
+```{r, include=FALSE}
+# Run a CA on the genind object
+obj_out_casefilt <- genind2genpop(rad_casefilt.filt_CASE.ONLY)
+ca1_out_casefilt <- dudi.coa(tab(obj_out_casefilt), scannf=FALSE, nf=10)
+eig_ca1_out_casefilt <- round((ca1_out_casefilt$eig / (sum(ca1_out_casefilt$eig))) * 100, 2)
+out_ca_casefilt <- ca1_out_casefilt$li[,1:2]
+rownames(out_ca_casefilt) <- popNames(rad_casefilt.filt_CASE.ONLY)
+```
+
+```{r, include=FALSE}
+out_ca_casefilt <- out_ca_casefilt %>%
+  rownames_to_column(var = "Population") %>%
+  mutate(Population = factor(Population, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  dplyr::select(Population, Axis1, Axis2)
+```
+
+```{r, include=FALSE}
+strata_ca_casefilt <- strata_6pops %>%
+  left_join(out_ca_casefilt, by = "Population")
+```
+
+```{r, echo=FALSE}
+# Plot the CA
+CASE_ONLY_SAL_COA <- ggplot(strata_ca_casefilt, aes(x = Axis1, y = Axis2, colour = Population)) +
+  geom_point(size = 6, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops,
+                      name = "") +
+  ggtitle("CASE (Only)") +
+  theme_minimal() +
+  # theme(legend.position = "none") + 
+  theme(plot.title = element_text(size = 14)) +
+  labs(x = paste("", "Axis 1: ", eig_ca1_out_casefilt[1], "%"), y = paste("", "Axis 2: ", eig_ca1_out_casefilt[2], "%"))
+CASE_ONLY_SAL_COA
+```
+
+```{r, echo=FALSE}
+# Plot CA1 versus June_Salinity_Avg 
+
+# Assuming `variable_name` is "June_Salinity_Avg"
+variable_name <- env.for_casefilt_CASE.ONLY$variables[1]
+
+# Fit the linear model
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+model_summary <- summary(sal_mod_casefilt)
+
+# Extract adjusted R2 and p-value
+adj_r2 <- signif(model_summary$adj.r.squared, 3)
+p_value <- signif(model_summary$coefficients[2,4], 2)
+
+# Use ggplot with the variable name
+CASE_ONLY_SAL_LM <- strata_ca_casefilt %>%
+  ggplot(aes(y = .data[[variable_name]], x = Axis1)) +  # Use .data[[variable_name]]
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 4) +
+  scale_color_manual(values = cols_6pops) +
+  # ggtitle("CASE.ONLY") + 
+  theme_minimal() +
+  theme(legend.position = "none") + 
+  labs(
+    y = "Average Salinity",
+    x = "Axis 1"
+  ) +
+  annotate("text", 
+           x = max(strata_ca_casefilt$Axis1) - 0.05,  # Adjust this value for horizontal gap
+           y = max(strata_ca_casefilt[[variable_name]]) + 5,  # Adjust this value for vertical gap
+           label = paste("Adj R² =", adj_r2, "\np =", p_value),
+           hjust = 0, vjust = 1)
+CASE_ONLY_SAL_LM
+```
+
+```{r}
+# Jon's plot
+png(filename="CASE_OnlyRDA.png", type="cairo",units="px", width=4000, height=3000, res=300, bg="transparent")
+strata_ca_casefilt %>%
+  ggplot(aes(y = Axis1, x = .data[[variable_name]])) +  # Use .data[[variable_name]]
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1.5) +
+  geom_point(aes(color = Population), size = 6) +
+  scale_color_manual(values = cols_6pops) +
+  theme_minimal() +
+  ggtitle("CASE") +
+  labs(y = "CA1",x = variable_name) +
+  theme_black()
+dev.off()
+```
+
+```{r, echo=FALSE}
+# Linear model for CA1 versus top variables 
+
+# Assuming you want the first variable in `env.for_casefilt` to be used
+variable_name <- env.for_casefilt_CASE.ONLY$variables[1]
+
+# Dynamically construct the formula
+as.formula(paste("Axis1 ~", variable_name))
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+summary(sal_mod_casefilt)
+```
+
+## SE.ONLY 
+
+```{r, echo=FALSE}
+# Perform RDA with all significant variables
+
+if (grepl("~ 1", deparse(mod_casefilt_SE.ONLY$call))) {
+  print("No significant model")
+  
+  # Construct the formula dynamically
+  formula_dynamic <- as.formula(paste("allele_freqs_casefilt ~", env.for_casefilt_SE.ONLY$variables[1]))
+  
+  # Run the rda model with the dynamically created formula
+  rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+  
+} else {
+  # Use the model call from mod_casefilt_SE.ONLY if it's not a null model
+  rda_casefilt <- eval(mod_casefilt_SE.ONLY$call)
+}
+
+# Use the formula in the rda() function
+#rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+#rda_casefilt <- eval(mod_casefilt_SE.ONLY$call)
+#rda_casefilt = rda(allele_freqs_casefilt ~ as.text(env.for_casefilt$variables[1]), data = env.full, scale = TRUE)
+rda_casefilt
+
+# Model summaries
+RsquareAdj(rda_casefilt) # adjusted Rsquared 
+vif.cca(rda_casefilt) # variance inflation factor (<10 OK)
+anova.cca(rda_casefilt, permutations = 1000) # full model
+anova.cca(rda_casefilt, permutations = 1000, by="margin") # per variable 
+
+# Variance explained by each canonical axis
+summary(eigenvals(rda_casefilt, model = "constrained"))
+```
+
+```{r, echo=FALSE}
+# Visualize results of RDA
+#png("rda_casefilt.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda_casefilt, type="n", scaling = 3, main ="SE.ONLY")
+# SITES
+points(rda_casefilt, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(rda_casefilt, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda_casefilt, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda_casefilt, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda_casefilt)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 1)
+# dev.off()
+```
+
+
+## Correspondence analysis-based RDA
+```{r, include=FALSE}
+# Run a CA on the genind object
+obj_out_casefilt <- genind2genpop(rad_casefilt.filt_SE.ONLY)
+ca1_out_casefilt <- dudi.coa(tab(obj_out_casefilt), scannf=FALSE, nf=10)
+eig_ca1_out_casefilt <- round((ca1_out_casefilt$eig / (sum(ca1_out_casefilt$eig))) * 100, 2)
+out_ca_casefilt <- ca1_out_casefilt$li[,1:2]
+rownames(out_ca_casefilt) <- popNames(rad_casefilt.filt_SE.ONLY)
+```
+
+```{r, include=FALSE}
+out_ca_casefilt <- out_ca_casefilt %>%
+  rownames_to_column(var = "Population") %>%
+  mutate(Population = factor(Population, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  dplyr::select(Population, Axis1, Axis2)
+```
+
+```{r, include=FALSE}
+strata_ca_casefilt <- strata_6pops %>%
+  left_join(out_ca_casefilt, by = "Population")
+```
+
+```{r, echo=FALSE}
+# Plot the CA
+SE_ONLY_PC3_COA <- ggplot(strata_ca_casefilt, aes(x = Axis1, y = Axis2, colour = Population)) +
+  geom_point(size = 6, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops,
+                      name = "") +
+  ggtitle("Sewage Effluent (Only)") +
+  theme_minimal() +
+  theme(legend.position = "none") + 
+  theme(plot.title = element_text(size = 14)) +
+  labs(x = paste("", "Axis 1: ", eig_ca1_out_casefilt[1], "%"), y = paste("", "Axis 2: ", eig_ca1_out_casefilt[2], "%"))
+SE_ONLY_PC3_COA
+```
+
+```{r, echo=FALSE}
+# Plot CA1 versus PC3 
+
+# Assuming `variable_name` is "June_Salinity_Avg"
+variable_name <- env.for_casefilt_SE.ONLY$variables[1]
+
+# Fit the linear model
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+model_summary <- summary(sal_mod_casefilt)
+
+# Extract adjusted R2 and p-value
+adj_r2 <- signif(model_summary$adj.r.squared, 3)
+p_value <- signif(model_summary$coefficients[2,4], 2)
+
+# Use ggplot with the variable name
+SE_ONLY_PC3_LM <- strata_ca_casefilt %>%
+  ggplot(aes(y = .data[[variable_name]], x = Axis1)) +  # Use .data[[variable_name]]
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 4) +
+  scale_color_manual(values = cols_6pops) +
+  # ggtitle("SE ONLY") + 
+  theme_minimal() +
+  theme(legend.position = "none") + 
+  labs(
+    y = "PC3",
+    x = "Axis 1"
+  ) +
+  annotate("text", 
+           x = min(strata_ca_casefilt$Axis1),  # Adjust this value for horizontal gap
+           y = max(strata_ca_casefilt[[variable_name]]) + 0.5,  # Adjust this value for vertical gap
+           label = paste("Adj R² =", adj_r2, "\np =", p_value),
+           hjust = 0, vjust = 1)
+SE_ONLY_PC3_LM
+```
+
+```{r, echo=FALSE}
+# Linear model for CA1 versus top variables 
+
+# Assuming you want the first variable in `env.for_casefilt` to be used
+variable_name <- env.for_casefilt_SE.ONLY$variables[1]
+
+# Dynamically construct the formula
+as.formula(paste("Axis1 ~", variable_name))
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+summary(sal_mod_casefilt)
+```
+
+## CA.CASE
+
+```{r, echo=FALSE}
+# Perform RDA with all significant variables
+
+if (grepl("~ 1", deparse(mod_casefilt_CA.CASE$call))) {
+  print("No significant model")
+  
+  # Construct the formula dynamically
+  formula_dynamic <- as.formula(paste("allele_freqs_casefilt ~", env.for_casefilt_CA.CASE$variables[1]))
+  
+  # Run the rda model with the dynamically created formula
+  rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+  
+} else {
+  # Use the model call from mod_casefilt_CA.CASE if it's not a null model
+  rda_casefilt <- eval(mod_casefilt_CA.CASE$call)
+}
+
+# Use the formula in the rda() function
+#rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+#rda_casefilt <- eval(mod_casefilt_CA.CASE$call)
+#rda_casefilt = rda(allele_freqs_casefilt ~ as.text(env.for_casefilt$variables[1]), data = env.full, scale = TRUE)
+rda_casefilt
+
+# Model summaries
+RsquareAdj(rda_casefilt) # adjusted Rsquared 
+vif.cca(rda_casefilt) # variance inflation factor (<10 OK)
+anova.cca(rda_casefilt, permutations = 1000) # full model
+anova.cca(rda_casefilt, permutations = 1000, by="margin") # per variable 
+
+# Variance explained by each canonical axis
+summary(eigenvals(rda_casefilt, model = "constrained"))
+```
+
+```{r, echo=FALSE}
+# Visualize results of RDA
+#png("rda_casefilt.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda_casefilt, type="n", scaling = 3, main ="CA.CASE")
+# SITES
+points(rda_casefilt, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(rda_casefilt, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda_casefilt, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda_casefilt, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda_casefilt)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 1)
+# dev.off()
+```
+
+
+## Correspondence analysis-based RDA
+```{r, include=FALSE}
+# Run a CA on the genind object
+obj_out_casefilt <- genind2genpop(rad_casefilt.filt_CA.CASE)
+ca1_out_casefilt <- dudi.coa(tab(obj_out_casefilt), scannf=FALSE, nf=10)
+eig_ca1_out_casefilt <- round((ca1_out_casefilt$eig / (sum(ca1_out_casefilt$eig))) * 100, 2)
+out_ca_casefilt <- ca1_out_casefilt$li[,1:2]
+rownames(out_ca_casefilt) <- popNames(rad_casefilt.filt_CA.CASE)
+```
+
+```{r, include=FALSE}
+out_ca_casefilt <- out_ca_casefilt %>%
+  rownames_to_column(var = "Population") %>%
+  mutate(Population = factor(Population, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  dplyr::select(Population, Axis1, Axis2)
+```
+
+```{r, include=FALSE}
+strata_ca_casefilt <- strata_6pops %>%
+  left_join(out_ca_casefilt, by = "Population")
+```
+
+```{r, echo=FALSE}
+# Plot the CA
+ggplot(strata_ca_casefilt, aes(x = Axis1, y = Axis2, colour = Population)) +
+  geom_point(size = 6, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops,
+                      name = "") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14)) +
+  labs(x = paste("", "Axis 1: ", eig_ca1_out_casefilt[1], "%"), y = paste("", "Axis 2: ", eig_ca1_out_casefilt[2], "%"))
+```
+
+```{r, echo=FALSE}
+# Plot CA1 versus June_Salinity_Avg 
+
+# Assuming `variable_name` is "June_Salinity_Avg"
+variable_name <- env.for_casefilt_CA.CASE$variables[1]
+
+# Use ggplot with the variable name
+strata_ca_casefilt %>%
+  ggplot(aes(y = Axis1, x = .data[[variable_name]])) +  # Use .data[[variable_name]]
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 4) +
+  scale_color_manual(values = cols_6pops) +
+  ggtitle("CA.CASE") + 
+  theme_minimal() +
+  labs(
+    y = "CA1",
+    x = variable_name
+  )
+```
+
+```{r, echo=FALSE}
+# Linear model for CA1 versus top variables 
+
+# Assuming you want the first variable in `env.for_casefilt` to be used
+variable_name <- env.for_casefilt_CA.CASE$variables[1]
+
+# Dynamically construct the formula
+as.formula(paste("Axis1 ~", variable_name))
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+summary(sal_mod_casefilt)
+```
+
+## SE.CA 
+
+```{r, echo=FALSE}
+# Perform RDA with all significant variables
+
+if (grepl("~ 1", deparse(mod_casefilt_SE.CA$call))) {
+  print("No significant model")
+  
+  # Construct the formula dynamically
+  formula_dynamic <- as.formula(paste("allele_freqs_casefilt ~", env.for_casefilt_SE.CA$variables[1]))
+  
+  # Run the rda model with the dynamically created formula
+  rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+  
+} else {
+  # Use the model call from mod_casefilt_SE.CA if it's not a null model
+  rda_casefilt <- eval(mod_casefilt_SE.CA$call)
+}
+
+# Use the formula in the rda() function
+#rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+#rda_casefilt <- eval(mod_casefilt_SE.CA$call)
+#rda_casefilt = rda(allele_freqs_casefilt ~ as.text(env.for_casefilt$variables[1]), data = env.full, scale = TRUE)
+rda_casefilt
+
+# Model summaries
+RsquareAdj(rda_casefilt) # adjusted Rsquared 
+vif.cca(rda_casefilt) # variance inflation factor (<10 OK)
+anova.cca(rda_casefilt, permutations = 1000) # full model
+anova.cca(rda_casefilt, permutations = 1000, by="margin") # per variable 
+
+# Variance explained by each canonical axis
+summary(eigenvals(rda_casefilt, model = "constrained"))
+```
+
+```{r, echo=FALSE}
+# Visualize results of RDA
+#png("rda_casefilt.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda_casefilt, type="n", scaling = 3, main ="SE.CA")
+# SITES
+points(rda_casefilt, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(rda_casefilt, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda_casefilt, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda_casefilt, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda_casefilt)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 1)
+# dev.off()
+```
+
+
+## Correspondence analysis-based RDA
+```{r, include=FALSE}
+# Run a CA on the genind object
+obj_out_casefilt <- genind2genpop(rad_casefilt.filt_SE.CA)
+ca1_out_casefilt <- dudi.coa(tab(obj_out_casefilt), scannf=FALSE, nf=10)
+eig_ca1_out_casefilt <- round((ca1_out_casefilt$eig / (sum(ca1_out_casefilt$eig))) * 100, 2)
+out_ca_casefilt <- ca1_out_casefilt$li[,1:2]
+rownames(out_ca_casefilt) <- popNames(rad_casefilt.filt_SE.CA)
+```
+
+```{r, include=FALSE}
+out_ca_casefilt <- out_ca_casefilt %>%
+  rownames_to_column(var = "Population") %>%
+  mutate(Population = factor(Population, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  dplyr::select(Population, Axis1, Axis2)
+```
+
+```{r, include=FALSE}
+strata_ca_casefilt <- strata_6pops %>%
+  left_join(out_ca_casefilt, by = "Population")
+```
+
+```{r, echo=FALSE}
+# Plot the CA
+ggplot(strata_ca_casefilt, aes(x = Axis1, y = Axis2, colour = Population)) +
+  geom_point(size = 6, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops,
+                      name = "") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14)) +
+  labs(x = paste("", "Axis 1: ", eig_ca1_out_casefilt[1], "%"), y = paste("", "Axis 2: ", eig_ca1_out_casefilt[2], "%"))
+```
+
+```{r, echo=FALSE}
+# Plot CA1 versus June_Salinity_Avg 
+
+# Assuming `variable_name` is "June_Salinity_Avg"
+variable_name <- env.for_casefilt_SE.CA$variables[1]
+
+# Use ggplot with the variable name
+strata_ca_casefilt %>%
+  ggplot(aes(y = Axis1, x = .data[[variable_name]])) +  # Use .data[[variable_name]]
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 4) +
+  scale_color_manual(values = cols_6pops) +
+  ggtitle("SE.CA") + 
+  theme_minimal() +
+  labs(
+    y = "CA1",
+    x = variable_name
+  )
+```
+
+```{r, echo=FALSE}
+# Linear model for CA1 versus top variables 
+
+# Assuming you want the first variable in `env.for_casefilt` to be used
+variable_name <- env.for_casefilt_SE.CA$variables[1]
+
+# Dynamically construct the formula
+as.formula(paste("Axis1 ~", variable_name))
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+summary(sal_mod_casefilt)
+```
+
+## SE.CASE.CA
+
+```{r, echo=FALSE}
+# Perform RDA with all significant variables
+
+if (grepl("~ 1", deparse(mod_casefilt_SE.CASE.CA$call))) {
+  print("No significant model")
+  
+  # Construct the formula dynamically
+  formula_dynamic <- as.formula(paste("allele_freqs_casefilt ~", env.for_casefilt_SE.CASE.CA$variables[1]))
+  
+  # Run the rda model with the dynamically created formula
+  rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+  
+} else {
+  # Use the model call from mod_casefilt_SE.CASE.CA if it's not a null model
+  rda_casefilt <- eval(mod_casefilt_SE.CASE.CA$call)
+}
+
+# Use the formula in the rda() function
+#rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+#rda_casefilt <- eval(mod_casefilt_SE.CASE.CA$call)
+#rda_casefilt = rda(allele_freqs_casefilt ~ as.text(env.for_casefilt$variables[1]), data = env.full, scale = TRUE)
+rda_casefilt
+
+# Model summaries
+RsquareAdj(rda_casefilt) # adjusted Rsquared 
+vif.cca(rda_casefilt) # variance inflation factor (<10 OK)
+anova.cca(rda_casefilt, permutations = 1000) # full model
+anova.cca(rda_casefilt, permutations = 1000, by="margin") # per variable 
+
+# Variance explained by each canonical axis
+summary(eigenvals(rda_casefilt, model = "constrained"))
+```
+
+```{r, echo=FALSE}
+# Visualize results of RDA
+#png("rda_casefilt.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda_casefilt, type="n", scaling = 3, main ="SE.CASE.CA")
+# SITES
+points(rda_casefilt, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(rda_casefilt, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda_casefilt, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda_casefilt, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda_casefilt)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 1)
+# dev.off()
+```
+
+
+## Correspondence analysis-based RDA
+```{r, include=FALSE}
+# Run a CA on the genind object
+obj_out_casefilt <- genind2genpop(rad_casefilt.filt_SE.CASE.CA)
+ca1_out_casefilt <- dudi.coa(tab(obj_out_casefilt), scannf=FALSE, nf=10)
+eig_ca1_out_casefilt <- round((ca1_out_casefilt$eig / (sum(ca1_out_casefilt$eig))) * 100, 2)
+out_ca_casefilt <- ca1_out_casefilt$li[,1:2]
+rownames(out_ca_casefilt) <- popNames(rad_casefilt.filt_SE.CASE.CA)
+```
+
+```{r, include=FALSE}
+out_ca_casefilt <- out_ca_casefilt %>%
+  rownames_to_column(var = "Population") %>%
+  mutate(Population = factor(Population, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  dplyr::select(Population, Axis1, Axis2)
+```
+
+```{r, include=FALSE}
+strata_ca_casefilt <- strata_6pops %>%
+  left_join(out_ca_casefilt, by = "Population")
+```
+
+```{r, echo=FALSE}
+# Plot the CA
+ggplot(strata_ca_casefilt, aes(x = Axis1, y = Axis2, colour = Population)) +
+  geom_point(size = 6, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops,
+                      name = "") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14)) +
+  labs(x = paste("", "Axis 1: ", eig_ca1_out_casefilt[1], "%"), y = paste("", "Axis 2: ", eig_ca1_out_casefilt[2], "%"))
+```
+
+```{r, echo=FALSE}
+# Plot CA1 versus June_Salinity_Avg 
+
+# Assuming `variable_name` is "June_Salinity_Avg"
+variable_name <- env.for_casefilt_SE.CASE.CA$variables[1]
+
+# Use ggplot with the variable name
+strata_ca_casefilt %>%
+  ggplot(aes(y = Axis1, x = .data[[variable_name]])) +  # Use .data[[variable_name]]
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 4) +
+  scale_color_manual(values = cols_6pops) +
+  ggtitle("SE.CASE.CA") + 
+  theme_minimal() +
+  labs(
+    y = "CA1",
+    x = variable_name
+  )
+```
+
+```{r, echo=FALSE}
+# Linear model for CA1 versus top variables 
+
+# Assuming you want the first variable in `env.for_casefilt` to be used
+variable_name <- env.for_casefilt_SE.CASE.CA$variables[1]
+
+# Dynamically construct the formula
+as.formula(paste("Axis1 ~", variable_name))
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+summary(sal_mod_casefilt)
+```
+
+
+## Total SNPs
+
+```{r, echo=FALSE}
+# Perform RDA with all significant variables
+
+if (grepl("~ 1", deparse(mod_casefilt$call))) {
+  print("No significant model")
+  
+  # Construct the formula dynamically
+  formula_dynamic <- as.formula(paste("allele_freqs_casefilt ~", env.for_casefilt$variables[1]))
+  
+  # Run the rda model with the dynamically created formula
+  rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+  
+} else {
+  # Use the model call from mod_casefilt_SEI if it's not a null model
+  rda_casefilt <- eval(mod_casefilt$call)
+}
+# Model summaries
+RsquareAdj(rda_casefilt) # adjusted Rsquared 
+vif.cca(rda_casefilt) # variance inflation factor (<10 OK)
+anova.cca(rda_casefilt, permutations = 1000) # full model
+anova.cca(rda_casefilt, permutations = 1000, by="margin") # per variable 
+
+# Variance explained by each canonical axis
+summary(eigenvals(rda_casefilt, model = "constrained"))
+```
+
+```{r, echo=FALSE}
+# Visualize results of RDA
+#png("rda_casefilt.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda_casefilt, type="n", scaling = 3)
+# SITES
+points(rda_casefilt, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(rda_casefilt, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda_casefilt, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda_casefilt, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda_casefilt)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 0.5)
+# dev.off()
+```
+
+
+## Correspondence analysis-based RDA
+```{r, include=FALSE}
+# Run a CA on the genind object
+obj_out_casefilt <- genind2genpop(rad_casefilt.filt)
+ca1_out_casefilt <- dudi.coa(tab(obj_out_casefilt), scannf=FALSE, nf=10)
+eig_ca1_out_casefilt <- round((ca1_out_casefilt$eig / (sum(ca1_out_casefilt$eig))) * 100, 2)
+out_ca_casefilt <- ca1_out_casefilt$li[,1:2]
+rownames(out_ca_casefilt) <- popNames(rad_casefilt.filt)
+```
+
+```{r, include=FALSE}
+out_ca_casefilt <- out_ca_casefilt %>%
+  rownames_to_column(var = "Population") %>%
+  mutate(Population = factor(Population, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  dplyr::select(Population, Axis1, Axis2)
+```
+
+```{r, include=FALSE}
+strata_ca_casefilt <- strata_6pops %>%
+  left_join(out_ca_casefilt, by = "Population")
+```
+
+```{r, echo=FALSE}
+# Plot the CA
+TOTAL_SAL_COA <- ggplot(strata_ca_casefilt, aes(x = Axis1, y = Axis2, colour = Population)) +
+  geom_point(size = 6, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops,
+                      name = "") +
+  ggtitle("Total SNPs") + 
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14)) +
+  labs(x = paste("", "Axis 1: ", eig_ca1_out_casefilt[1], "%"), y = paste("", "Axis 2: ", eig_ca1_out_casefilt[2], "%"))
+TOTAL_SAL_COA
+```
+
+```{r, echo=FALSE}
+# Plot CA1 versus June_Salinity_Avg 
+
+# Assuming `variable_name` is "June_Salinity_Avg"
+variable_name <- env.for_casefilt$variables[1]
+
+# Fit the linear model
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+model_summary <- summary(sal_mod_casefilt)
+
+# Extract adjusted R2 and p-value
+adj_r2 <- signif(model_summary$adj.r.squared, 3)
+p_value <- signif(model_summary$coefficients[2,4], 2)
+
+# Use ggplot with the variable name
+TOTAL_SAL_LM <- strata_ca_casefilt %>%
+  ggplot(aes(y = Axis1, x = .data[[variable_name]])) +  # Use .data[[variable_name]]
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 4) +
+  scale_color_manual(values = cols_6pops) +
+  ggtitle("Total SNPs") + 
+  theme_minimal() +
+  labs(
+    y = "Average Salinity",
+    x = "Axis 1"
+  ) +
+  annotate("text", 
+           x = max(strata_ca_casefilt[[variable_name]]),  # Adjust this value for horizontal gap
+           y = max(strata_ca_casefilt$Axis2) + 0.1 ,  # Adjust this value for vertical gap
+           label = paste("Adj R² =", adj_r2, "\np =", p_value),
+           hjust = 1, vjust = 1)
+TOTAL_SAL_LM
+```
+
+```{r}
+# Jon's plot
+png(filename="CASE_TotalRDA.png", type="cairo",units="px", width=4000, height=3000, res=300, bg="transparent")
+strata_ca_casefilt %>%
+  ggplot(aes(y = Axis1, x = .data[[variable_name]])) +  # Use .data[[variable_name]]
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1.5) +
+  geom_point(aes(color = Population), size = 6) +
+  scale_color_manual(values = cols_6pops) +
+  theme_minimal() +
+  ggtitle("Total SNPs") +
+  labs(y = "CA1",x = variable_name) +
+  theme_black()
+dev.off()
+```
+```{r}
+getwd()
+```
+
+```{r, echo=FALSE}
+# Linear model for CA1 versus top variables 
+
+# Assuming you want the first variable in `env.for_casefilt` to be used
+variable_name <- env.for_casefilt$variables[1]
+
+# Dynamically construct the formula
+as.formula(paste("Axis1 ~", variable_name))
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+summary(sal_mod_casefilt)
+```
+
+## Total Interval
+
+```{r, echo=FALSE}
+# Perform RDA with all significant variables
+
+if (grepl("~ 1", deparse(mod_casefilt_I$call))) {
+  print("No significant model")
+  
+  # Construct the formula dynamically
+  formula_dynamic <- as.formula(paste("allele_freqs_casefilt ~", env.for_casefilt_I$variables[1]))
+  
+  # Run the rda model with the dynamically created formula
+  rda_casefilt <- rda(formula_dynamic, data = env.full, scale = TRUE)
+  
+} else {
+  # Use the model call from mod_casefilt_SEI if it's not a null model
+  rda_casefilt <- eval(mod_casefilt_I$call)
+}
+rda_casefilt
+
+# Model summaries
+RsquareAdj(rda_casefilt) # adjusted Rsquared 
+vif.cca(rda_casefilt) # variance inflation factor (<10 OK)
+anova.cca(rda_casefilt, permutations = 1000) # full model
+anova.cca(rda_casefilt, permutations = 1000, by="margin") # per variable 
+
+# Variance explained by each canonical axis
+summary(eigenvals(rda_casefilt, model = "constrained"))
+```
+
+```{r, echo=FALSE}
+# Visualize results of RDA
+#png("rda_casefilt.png", width = 8, height = 7, units = "in", res = 600)
+plot(rda_casefilt, type="n", scaling = 3)
+# SITES
+points(rda_casefilt, display="sites", pch=21, scaling=3, cex=1.5, col="black",
+       bg=cols_6pops[col_dframe$region]) # sites
+text(rda_casefilt, display="sites", scaling = 3, col="black", font=2, pos=4)
+# PREDICTORS
+text(rda_casefilt, display="bp", scaling=3, col="red1", cex=1, lwd=2)
+# SNPS
+# text(rda_casefilt, display="species", scaling = 3, col="blue", cex=0.7, pos=4) # SNPs
+# LEGEND
+#legend("bottomright", legend=levels(col_dframe$region), bty="n", col="black",
+      #pch=21, cex=1.2, pt.bg=cols_6pops)
+# OTHER LABELS
+adj.R2 = round(RsquareAdj(rda_casefilt)$adj.r.squared, 3)
+mtext(bquote(italic("Adj.R")^"2"~"= "~.(adj.R2)), side = 3, adj = 0.5)
+# dev.off()
+```
+
+
+## Correspondence analysis-based RDA
+```{r, include=FALSE}
+# Run a CA on the genind object
+obj_out_casefilt <- genind2genpop(rad_casefilt.filt_I)
+ca1_out_casefilt <- dudi.coa(tab(obj_out_casefilt), scannf=FALSE, nf=10)
+eig_ca1_out_casefilt <- round((ca1_out_casefilt$eig / (sum(ca1_out_casefilt$eig))) * 100, 2)
+out_ca_casefilt <- ca1_out_casefilt$li[,1:2]
+rownames(out_ca_casefilt) <- popNames(rad_casefilt.filt_I)
+```
+
+```{r, include=FALSE}
+out_ca_casefilt <- out_ca_casefilt %>%
+  rownames_to_column(var = "Population") %>%
+  mutate(Population = factor(Population, levels = c("BAR", "BIS", "GB", "KIC", "MCD", "PVD"))) %>%
+  dplyr::select(Population, Axis1, Axis2)
+```
+
+```{r, include=FALSE}
+strata_ca_casefilt <- strata_6pops %>%
+  left_join(out_ca_casefilt, by = "Population")
+```
+
+```{r, echo=FALSE}
+# Plot the CA
+TOTAL_INT_SAL_COA <- ggplot(strata_ca_casefilt, aes(x = Axis1, y = Axis2, colour = Population)) +
+  geom_point(size = 6, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops,
+                      name = "") +
+  ggtitle("All Candidate Intervals") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14)) +
+  labs(x = paste("", "Axis 1: ", eig_ca1_out_casefilt[1], "%"), y = paste("", "Axis 2: ", eig_ca1_out_casefilt[2], "%"))
+TOTAL_INT_SAL_COA
+```
+
+```{r, echo=FALSE}
+# Plot CA1 versus June_Salinity_Avg 
+
+# Assuming `variable_name` is "June_Salinity_Avg"
+variable_name <- env.for_casefilt_I$variables[1]
+
+# Fit the linear model
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+model_summary <- summary(sal_mod_casefilt)
+
+# Extract adjusted R2 and p-value
+adj_r2 <- signif(model_summary$adj.r.squared, 3)
+p_value <- signif(model_summary$coefficients[2,4], 2)
+
+# Use ggplot with the variable name
+TOTAL_INT_SAL_LM <- strata_ca_casefilt %>%
+  ggplot(aes(y = .data[[variable_name]], x = Axis1)) +  # Use .data[[variable_name]]
+  geom_smooth(method = "lm", col = "darkgrey", lty = 1) +
+  geom_point(aes(color = Population), size = 4) +
+  scale_color_manual(values = cols_6pops) +
+  # ggtitle("All Candidate Intervals") + 
+  theme_minimal() +
+  theme(legend.position = "none") + 
+  labs(
+    y = "Average Salinity",
+    x = "Axis 1"
+  ) +
+  annotate("text", 
+           x = max(strata_ca_casefilt$Axis1) - 0.05,  # Adjust this value for horizontal gap
+           y = max(strata_ca_casefilt[[variable_name]]) + 3.5,  # Adjust this value for vertical gap
+           label = paste("Adj R² =", adj_r2, "\np =", p_value),
+           hjust = 0, vjust = 1)
+TOTAL_INT_SAL_LM
+```
+
+```{r, echo=FALSE}
+# Linear model for CA1 versus top variables 
+
+# Assuming you want the first variable in `env.for_casefilt` to be used
+variable_name <- env.for_casefilt_I$variables[1]
+
+# Dynamically construct the formula
+as.formula(paste("Axis1 ~", variable_name))
+sal_mod_casefilt <- lm(as.formula(paste("Axis1 ~", variable_name)), data = strata_ca_casefilt)
+summary(sal_mod_casefilt)
+```
+
+# Plotting the COA and LM plots as one figure
+
+```{r}
+# Open large PNG device
+png(filename = "CASE_Larv_COA_LM_plots.png", type = "cairo",
+    units = "px", width = 12000, height = 4200, res = 300, bg = "transparent")
+
+layout <- "
+AABBCCDDEE
+AABBCCDDEE
+FFGGHHIIJJ
+FFGGHHIIJJ
+"
+
+CA_FACTOR_PC2_COA+CA_ONLY_SAL_COA+SE_ONLY_PC3_COA+SE_FACTOR_Sal_COA+CASE_ONLY_SAL_COA+CA_FACTOR_PC2_LM+CA_ONLY_SAL_LM+SE_ONLY_PC3_LM+SE_FACTOR_Sal_LM+CASE_ONLY_SAL_LM +patchwork::plot_layout(design=layout, guides = "collect") + patchwork::plot_annotation(tag_levels = 'A')
+```
+
+Total Intervals plot for supplemental figure
+```{r}
+# Open large PNG device
+png(filename = "CASE_Larv_TotalInterval_COA_LM_plots.png", type = "cairo",
+    units = "px", width = 3600, height = 4200, res = 300, bg = "transparent")
+
+layout <- "
+AAA
+BBB
+"
+
+TOTAL_INT_SAL_COA+TOTAL_INT_SAL_LM+patchwork::plot_layout(design=layout, guides = "collect") + patchwork::plot_annotation(tag_levels = 'A')
+```
+
+# Creating BED files from individual treatment VCF files
+
+I decided to make a new working directory and move files there:
+
+In my home directory on KITT
+
+```{bash}
+mkdir NB_adultlarval_analysis_V2
+cd NB_adultlarval_analysis_V2
+```
+
+Linking the VCF files Jon made in `RDAV2` to this new directory:
+
+```{bash}
+# CA
+ln -s ../RDAV2/CA_ins.recode.vcf . # 118 SNPs
+# SE
+ln -s ../RDAV2/SE_ins.recode.vcf . # 267 SNPs
+# CASE
+ln -s ../RDAV2/CASE_ins.recode.vcf . # 563 SNPs
+# CA Only
+ln -s ../RDAV2/CA.ONLY_ins.recode.vcf . # 89 SNPs
+# SE Only
+ln -s ../RDAV2/SE.ONLY_ins.recode.vcf . # 170 SNPs
+# CASE Only
+ln -s ../RDAV2/CASE.ONLY_ins.recode.vcf . # 477 SNPs
+# CA & SE Shared
+ln -s ../RDAV2/SE.CA_ins.recode.vcf . # 13 SNPs
+# CA & CASE Shared
+ln -s ../RDAV2/CA.CASE_ins.recode.vcf . # 10 SNPs
+# SE & CASE Shared
+ln -s ../RDAV2/SE.CASE_ins.recode.vcf . # 77 SNPs
+# CA & SE & CASE Shared
+ln -s ../RDAV2/SE.CASE.CA_ins.recode.vcf . # 9 SNPs
+# CA Only + CA & CASE shared (CA Factor)
+ln -s ../RDAV2/CA.FACTOR_ins.recode.vcf . # 99 SNPs
+# SE Only + SE & CASE shared (SE Factor)
+ln -s ../RDAV2/SE.FACTOR_ins.recode.vcf . # 248 SNPs
+# All Candidate
+ln -s ../RDAV2/CASE_SNPs.recode.vcf . # 438 SNPs
+# All Candidate Intervals
+ln -s ../RDAV2/CASE_SNPs_intervals.recode.vcf . # 819 SNPs
+```
+
+Extracting the chromosome and SNP position info to a new file and converting it to a BED file
+
+```{bash}
+# CA
+mawk '!/#/' CA_ins.recode.vcf | cut -f1,2 | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > CA.Significant.loci.bed
+# SE
+mawk '!/#/' SE_ins.recode.vcf | cut -f1,2 | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > SE.Significant.loci.bed
+# CASE
+mawk '!/#/' CASE_ins.recode.vcf | cut -f1,2 | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > CASE.Significant.loci.bed
+# CA Only
+mawk '!/#/' CA.ONLY_ins.recode.vcf | cut -f1,2 | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > CA.ONLY.Significant.loci.bed
+# SE Only
+mawk '!/#/' SE.ONLY_ins.recode.vcf | cut -f1,2 | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > SE.ONLY.Significant.loci.bed
+# CASE Only
+mawk '!/#/' CASE.ONLY_ins.recode.vcf | cut -f1,2 | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > CASE.ONLY.Significant.loci.bed
+# CA & SE Shared
+mawk '!/#/' SE.CA_ins.recode.vcf | cut -f1,2 | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > SE.CA.Significant.loci.bed
+# CA & CASE Shared
+mawk '!/#/' CA.CASE_ins.recode.vcf | cut -f1,2 | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > CA.CASE.Significant.loci.bed
+# SE & CASE Shared
+mawk '!/#/' SE.CASE_ins.recode.vcf | cut -f1,2 | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > SE.CASE.Significant.loci.bed
+# CA & SE & CASE Shared
+mawk '!/#/' SE.CASE.CA_ins.recode.vcf | cut -f1,2 | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > SE.CASE.CA.Significant.loci.bed
+# CA Only + CA & CASE shared (CA Factor)
+mawk '!/#/' CA.FACTOR_ins.recode.vcf | cut -f1,2 | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > CA.FACTOR.Significant.loci.bed
+# SE Only + SE & CASE shared (SE Factor)
+mawk '!/#/' SE.FACTOR_ins.recode.vcf | cut -f1,2 | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > SE.FACTOR.Significant.loci.bed
+# All Candidate
+mawk '!/#/' CASE_SNPs.recode.vcf | cut -f1,2 | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > CASE.Total.Significant.loci.bed
+# All Candidate Intervals
+bedtools slop -b 10 -i <(bedtools sort -i CASE.Total.Significant.loci.bed) -g ../CASE_RDA/from_Jon/reference.fasta.fai  | bedtools merge -i - >  CASE.Total.Significant.loci.intervals.bed
+```
+
+# Looking for overlapping outlier adult and larval loci:
+
+```{bash}
+ln -s ~/NB_capture_both/NB_ddhaplo/NB_ddhaplo_working/NB_PopSeaGen_Analysis_working/Outlier_SNPs_6p9g9/outliers_full_final.recode.vcf .
+
+vcftools --vcf outliers_full_final.recode.vcf --bed CASE.Total.Significant.loci.bed --recode --recode-INFO-all --out shared_adult_larval_outliers
+
+vcftools --vcf outliers_full_final.recode.vcf --bed CASE.Total.Significant.loci.intervals.bed --recode --recode-INFO-all --out shared_adult_larval_outliers_intervals
+```
+
+**10 outlier loci directly shared, 16 outliers within 10 bps.**
+
+
+Now, I'm going to break this down by larval treatment and examine any overlapping outlier loci and/or genes between the larval set and adult set. For the Coastal Acidification treatment (CA), I'm going to work with the CA.FACTOR and CA.ONLY datasets, as they were significantly associated with the PC2 variable and salinity, respectively. I will compare these to the adult outlier SNPs that are strongly associated with PC2 (all inversion pcadapt outliers and select LFMM outliers) and salinity (all RDA outliers and select LFMM outliers). For the Sewage Effluent treatment (SE), I'm going to work with the SE.FACTOR and SE.ONLY datasets, as they were significantly associated with salinity and the PC3 variable, respectively. I will compare these to the adult outlier SNPs that are strongly associated with PC3 (all non-inversion pcadapt outliers) and salinity (all RDA outliers and select LFMM outliers). For the combined treatment (CASE), I will be working with the CASE.ONLY dataset which was significantly associated with salinity. I will compare these to the adult outlier SNPs that are strongly associated with salinity (all RDA outliers and select LFMM outliers).
+
+First, prep 10 bp interval bed files for each larval SNP set:
+
+```{bash}
+# CA.FACTOR
+bedtools slop -b 10 -i <(bedtools sort -i CA.FACTOR.Significant.loci.bed) -g /home/azyck/CASE_RDA/from_Jon/reference.fasta.fai  | bedtools merge -i - >  CA.FACTOR.Significant.loci.intervals.bed
+
+# CA.ONLY
+bedtools slop -b 10 -i <(bedtools sort -i CA.ONLY.Significant.loci.bed) -g /home/azyck/CASE_RDA/from_Jon/reference.fasta.fai  | bedtools merge -i - >  CA.ONLY.Significant.loci.intervals.bed
+
+# SE.FACTOR
+bedtools slop -b 10 -i <(bedtools sort -i SE.FACTOR.Significant.loci.bed) -g /home/azyck/CASE_RDA/from_Jon/reference.fasta.fai  | bedtools merge -i - >  SE.FACTOR.Significant.loci.intervals.bed
+
+# SE.ONLY
+bedtools slop -b 10 -i <(bedtools sort -i SE.ONLY.Significant.loci.bed) -g /home/azyck/CASE_RDA/from_Jon/reference.fasta.fai  | bedtools merge -i - >  SE.ONLY.Significant.loci.intervals.bed
+
+# CASE.ONLY
+bedtools slop -b 10 -i <(bedtools sort -i CASE.ONLY.Significant.loci.bed) -g /home/azyck/CASE_RDA/from_Jon/reference.fasta.fai  | bedtools merge -i - >  CASE.ONLY.Significant.loci.intervals.bed
+```
+
+I previously prepared files for the adult loci associated with PC2, PC3, and salinity. Here are the steps I performed:
+
+```{bash}
+# PC2 adult outliers
+# LFMM PC2 outliers
+cp /home/azyck/NB_capture_both/NB_ddhaplo/NB_ddhaplo_working/NB_OutlierDetection_working/LFMM2/outliers_lfmm2_6p9g9_red_PC2.txt .
+
+cat outliers_lfmm2_6p9g9_red_PC2.txt | parallel "grep -w ^{} loci_6p9g9.plus.index" | cut -f2,3 > outlier_lfmm2_PC2_adult.loci.txt
+
+# pcadapt PC2 outliers (inversion)
+
+cp /home/azyck/NB_capture_both/NB_ddhaplo/NB_ddhaplo_working/NB_PopSeaGen_Analysis_working/Outlier_SNPs_6p9g9/outliers6p9g9_db_invert.recode.vcf .
+mawk '!/#/' outliers6p9g9_db_invert.recode.vcf | cut -f1,2 > outlier_db_invert
+
+cat outlier_lfmm2_PC2_adult.loci.txt outlier_db_invert | sort | uniq > PC2_adult_outliers_all
+
+vcftools --vcf ../outliers_full_final.recode.vcf --positions PC2_adult_outliers_all --recode --recode-INFO-all --out PC2_adult_outliers_all
+```
+
+```{bash}
+# pcadapt PC3 outliers (non inversion)
+ln -s /home/azyck/NB_capture_both/NB_ddhaplo/NB_ddhaplo_working/NB_PopSeaGen_Analysis_working/Outlier_SNPs_6p9g9/outliers6p9g9_db_noinvert.recode.vcf .
+```
+
+```{bash}
+# Salinity adult outliers
+# LFMM Salinity outliers
+cp /home/azyck/NB_capture_both/NB_ddhaplo/NB_ddhaplo_working/NB_OutlierDetection_working/LFMM2/outliers_lfmm2_6p9g9_red_Avg_Sal_Jun.txt .
+cp /home/azyck/NB_capture_both/NB_ddhaplo/NB_ddhaplo_working/NB_OutlierDetection_working/LFMM2/outliers_lfmm2_6p9g9_red_Min_Sal_Jun.txt .
+
+cat outliers_lfmm2_6p9g9_red_Avg_Sal_Jun.txt | parallel "grep -w ^{} loci_6p9g9.plus.index" | cut -f2,3 > outlier_lfmm2_Avg_Sal_adult.loci.txt
+cat outliers_lfmm2_6p9g9_red_Min_Sal_Jun.txt | parallel "grep -w ^{} loci_6p9g9.plus.index" | cut -f2,3 > outlier_lfmm2_Min_Sal_adult.loci.txt
+
+# RDA salinity outliers
+cp /home/azyck/NB_capture_both/NB_ddhaplo/NB_ddhaplo_working/NB_PopSeaGen_Analysis_working/Outlier_SNPs_6p9g9/outliers_rda_fullneut.loci.txt .
+
+cat outlier_lfmm2_Avg_Sal_adult.loci.txt outlier_lfmm2_Min_Sal_adult.loci.txt outliers_rda_fullneut.loci.txt | sort | uniq > Sal_adult_outliers_all
+
+vcftools --vcf ../outliers_full_final.recode.vcf --positions Sal_adult_outliers_all --recode --recode-INFO-all --out Sal_adult_outliers_all
+```
+
+Identify shared outliers between larval and adult sets:
+
+Coastal Acidification treatment data sets 
+
+```{bash}
+# CA.FACTOR
+vcftools --vcf PC2_adult_outliers_all.recode.vcf --bed CA.FACTOR.Significant.loci.bed --recode --recode-INFO-all --out PC2_CAFACT_adult_larv_shared_outliers
+
+vcftools --vcf PC2_adult_outliers_all.recode.vcf --bed CA.FACTOR.Significant.loci.intervals.bed --recode --recode-INFO-all --out PC2_CAFACT_adult_larv_shared_outliers_intervals
+
+# CA.ONLY
+vcftools --vcf Sal_adult_outliers_all.recode.vcf --bed CA.ONLY.Significant.loci.bed --recode --recode-INFO-all --out Sal_CAONLY_adult_larv_shared_outliers
+
+vcftools --vcf Sal_adult_outliers_all.recode.vcf --bed CA.ONLY.Significant.loci.intervals.bed --recode --recode-INFO-all --out Sal_CAONLY_adult_larv_shared_outliers_intervals
+```
+
+Sewage Effluent treatment data sets 
+
+```{bash}
+# SE.FACTOR
+vcftools --vcf Sal_adult_outliers_all.recode.vcf --bed SE.FACTOR.Significant.loci.bed --recode --recode-INFO-all --out Sal_SEFACT_adult_larv_shared_outliers
+
+vcftools --vcf Sal_adult_outliers_all.recode.vcf --bed SE.FACTOR.Significant.loci.intervals.bed --recode --recode-INFO-all --out Sal_SEFACT_adult_larv_shared_outliers_intervals
+
+# SE.ONLY
+vcftools --vcf outliers6p9g9_db_noinvert.recode.vcf --bed SE.ONLY.Significant.loci.bed --recode --recode-INFO-all --out Sal_SEONLY_adult_larv_shared_outliers
+
+vcftools --vcf outliers6p9g9_db_noinvert.recode.vcf --bed SE.ONLY.Significant.loci.intervals.bed --recode --recode-INFO-all --out PC3_SEONLY_adult_larv_shared_outliers_intervals
+```
+
+CASE treatment data sets
+
+```{bash}
+# CASE.ONLY
+vcftools --vcf Sal_adult_outliers_all.recode.vcf --bed CASE.ONLY.Significant.loci.bed --recode --recode-INFO-all --out Sal_CASEONLY_adult_larv_shared_outliers
+
+vcftools --vcf Sal_adult_outliers_all.recode.vcf --bed CASE.ONLY.Significant.loci.intervals.bed --recode --recode-INFO-all --out Sal_CASEONLY_adult_larv_shared_outliers_intervals
+```
+
+
+Now comparing genes that contain larval and adult outlier SNPs
+
+
+Looking for genes specific to CA, SE, and CASE in the larvae 
+
+```{bash}
+# CA ONLY loci
+bedtools intersect -wb -a CA.ONLY.Significant.loci.bed -b /home/azyck/CASE_RDA/from_Jon/sorted.ref3.0.gene.bed | grep -oh "gene=LOC.*;g" | sed 's/gene=//g' | sed 's/;g//g' | sort | uniq > CA.ONLY.Larv.Sig.Gene
+
+# CA FACTOR loci
+bedtools intersect -wb -a CA.FACTOR.Significant.loci.bed -b /home/azyck/CASE_RDA/from_Jon/sorted.ref3.0.gene.bed | grep -oh "gene=LOC.*;g" | sed 's/gene=//g' | sed 's/;g//g' | sort | uniq > CA.FACTOR.Larv.Sig.Gene
+```
+
+59 CA.ONLY genes and 65 CA.FACTOR genes
+
+```{bash}
+# SE ONLY loci
+bedtools intersect -wb -a SE.ONLY.Significant.loci.bed -b /home/azyck/CASE_RDA/from_Jon/sorted.ref3.0.gene.bed | grep -oh "gene=LOC.*;g" | sed 's/gene=//g' | sed 's/;g//g' | sort | uniq > SE.ONLY.Larv.Sig.Gene
+
+# SE FACTOR loci
+bedtools intersect -wb -a SE.FACTOR.Significant.loci.bed -b /home/azyck/CASE_RDA/from_Jon/sorted.ref3.0.gene.bed | grep -oh "gene=LOC.*;g" | sed 's/gene=//g' | sed 's/;g//g' | sort | uniq > SE.FACTOR.Larv.Sig.Gene
+```
+
+121 SE.ONLY genes and 166 SE.FACTOR genes
+
+```{bash, eval=FALSE}
+# CASE ONLY loci
+bedtools intersect -wb -a CASE.ONLY.Significant.loci.bed -b /home/azyck/CASE_RDA/from_Jon/sorted.ref3.0.gene.bed | grep -oh "gene=LOC.*;g" | sed 's/gene=//g' | sed 's/;g//g' | sort | uniq > CASE.ONLY.Larv.Sig.Gene
+```
+
+281 CASE.ONLY genes
+
+
+
+I'm going to look for genes that overlap between the larvae and adults within each environmental association.
+
+Preparing adult gene sets:
+
+```{bash}
+# PC2 loci
+cut -f1,2 PC2_adult_outliers_all | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > Adult.PC2.Cand.Loci.bed
+bedtools intersect -wb -a Adult.PC2.Cand.Loci.bed -b ../sorted.ref3.0.gene.bed | grep -oh "gene=LOC.*;g" | sed 's/gene=//g' | sed 's/;g//g' | sort | uniq > Adult.PC2.Cand.Genes
+```
+
+24 adult genes for PC2
+
+**I believe I made the PC3 file manually**
+
+24 adult genes for PC3 
+
+```{bash}
+# Salinity loci
+cut -f1,2 Sal_adult_outliers_all | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > Adult.Sal.Cand.Loci.bed
+bedtools intersect -wb -a Adult.Sal.Cand.Loci.bed -b ../sorted.ref3.0.gene.bed | grep -oh "gene=LOC.*;g" | sed 's/gene=//g' | sed 's/;g//g' | sort | uniq > Adult.Sal.Cand.Genes
+```
+
+233 adult genes for Salinity
+
+```{bash, eval=FALSE}
+# I think I made this file manually
+cat adult.cand.PC3.gene | sort | uniq > adult.cand.PC3.uniq.gene
+cat Adult.PC2.Cand.Genes | sort | uniq > adult.cand.PC2.uniq.gene 
+cat Adult.Sal.Cand.Genes | sort | uniq > adult.cand.Sal.uniq.gene
+```
+
+```{bash, eval=FALSE}
+# Shared CA-PC2 associated genes
+comm -12 <(sort CA.FACTOR.Larv.Sig.Gene) <(sort adult.cand.PC2.uniq.gene) > PC2.CAFACT.larv.adult.shared.genes
+cat PC2.CAFACT.larv.adult.shared.genes | wc -l
+```
+
+1
+
+```{bash, eval=FALSE}
+head PC2.CAFACT.larv.adult.shared.genes
+```
+
+The one shared gene between CA_FACTOR larval candidate genes and the adult genes associated with the PC2 variable is a Probable sodium/potassium-transporting ATPase subunit beta-3. This one shared gene is within the inversion.
+
+```{bash, eval=FALSE}
+# Shared CA-Sal associated genes
+comm -12 <(sort CA.ONLY.Larv.Sig.Gene) <(sort adult.cand.Sal.uniq.gene) > Sal.CAONLY.larv.adult.shared.genes
+cat Sal.CAONLY.larv.adult.shared.genes | wc -l
+```
+
+10
+
+```{bash, eval=FALSE}
+# Shared SE-PC3 associated genes
+comm -12 <(sort SE.ONLY.Larv.Sig.Gene) <(sort adult.cand.PC3.uniq.gene) > PC3.SEONLY.larv.adult.shared.genes
+cat PC3.SEONLY.larv.adult.shared.genes | wc -l
+```
+
+1
+
+```{bash, eval=FALSE}
+head PC3.SEONLY.larv.adult.shared.genes
+```
+
+The one shared gene between SE_ONLY larval candidate genes and the adult genes associated with the PC3 variable is a Caprin-1-like isoform.
+
+```{bash, eval=FALSE}
+# Shared SE-Sal associated genes
+comm -12 <(sort SE.FACTOR.Larv.Sig.Gene) <(sort adult.cand.Sal.uniq.gene) > Sal.SEFACT.larv.adult.shared.genes
+cat Sal.SEFACT.larv.adult.shared.genes | wc -l
+```
+
+25
+
+```{bash, eval=FALSE}
+# Shared CASE-Sal associated genes
+comm -12 <(sort CASE.ONLY.Larv.Sig.Gene) <(sort adult.cand.Sal.uniq.gene) > Sal.CASEONLY.larv.adult.shared.genes
+cat Sal.CASEONLY.larv.adult.shared.genes | wc -l
+```
+
+33
+
+### Checking to see if any of the larval genes overlap 
+
+```{bash, eval=FALSE}
+comm -12 <(sort CA.ONLY.Larv.Sig.Gene) <(sort SE.FACTOR.Larv.Sig.Gene) | wc -l
+```
+
+```{bash, eval=FALSE}
+comm -12 <(sort CA.ONLY.Larv.Sig.Gene) <(sort CASE.ONLY.Larv.Sig.Gene) | wc -l
+```
+
+```{bash, eval=FALSE}
+comm -12 <(sort SE.FACTOR.Larv.Sig.Gene) <(sort CASE.ONLY.Larv.Sig.Gene) | wc -l
+```
+
+
+```{bash, eval=FALSE}
+comm -12 <(sort Sal.CAONLY.larv.adult.shared.genes) <(sort Sal.SEFACT.larv.adult.shared.genes) | wc -l
+```
+
+```{bash, eval=FALSE}
+comm -12 <(sort Sal.SEFACT.larv.adult.shared.genes) <(sort Sal.CASEONLY.larv.adult.shared.genes) | wc -l
+```
+
+```{bash, eval=FALSE}
+comm -12 <(sort Sal.CAONLY.larv.adult.shared.genes) <(sort Sal.CASEONLY.larv.adult.shared.genes) | wc -l
+```
+
+## Venn Diagram of overlapped gene sets 
+
+```{r}
+library(VennDiagram)
+library(grid)
+```
+
+```{r}
+png("venn_plots.png", width = 1800, height = 400)  # Extended width for 5 plots
+
+# Define all treatments and their colors
+larval_treatments <- c("CA", "SE", "CASE")
+larval_colors <- c("#EFFD5F", "cadetblue2", "darkolivegreen3")
+
+# Make a single row of 5 viewports (PC2, Salinity x3, PC3)
+grid.newpage()
+vps <- list(
+    viewport(x = 1/10, y = 0.5, width = 0.16, height = 0.9),      # PC2 (CA)
+    viewport(x = 3/10, y = 0.5, width = 0.16, height = 0.9),      # Salinity (CA)
+    viewport(x = 5/10, y = 0.5, width = 0.16, height = 0.9),      # Salinity (SE)
+    viewport(x = 7/10, y = 0.5, width = 0.16, height = 0.9),      # Salinity (CASE)
+    viewport(x = 9/10, y = 0.5, width = 0.16, height = 0.9)       # PC3 (SE)
+)
+
+# PC2: Adult vs Larval CA
+pushViewport(vps[[1]])
+grid.text("PC2", y=0.99, gp=gpar(fontsize=18, fontface="bold"))
+venn_pc2 <- draw.pairwise.venn(
+    area1 = 24, area2 = 65, cross.area = 1,
+    category = c("Adult", "Larval CA"),
+    fill = c("grey90", larval_colors[1]),
+    alpha = rep(0.5, 2),
+    cat.pos = c(0, -10),
+    cat.dist = rep(0.025, 2),
+    ext.text = FALSE,
+    print.mode = "raw",
+    cex = 1.5,
+    cat.cex = 1.3,
+    fontfamily = "sans",
+    cat.fontfamily = "sans",
+    cat.fontface = "bold"
+); grid.draw(venn_pc2); popViewport()
+
+# Salinity: Adult vs CA
+pushViewport(vps[[2]])
+grid.text("Salinity", y=0.99, gp=gpar(fontsize=18, fontface="bold"))
+venn_sal_ca <- draw.pairwise.venn(
+    area1 = 233, area2 = 59, cross.area = 10,
+    category = c("Adult", "Larval CA"),
+    fill = c("grey90", larval_colors[1]),
+    alpha = rep(0.5, 2),
+    cat.pos = c(0, -10),
+    cat.dist = rep(0.025, 2),
+    ext.text = FALSE,
+    print.mode = "raw",
+    cex = 1.5,
+    cat.cex = 1.3,
+    fontfamily = "sans",
+    cat.fontfamily = "sans",
+    cat.fontface = "bold"
+); grid.draw(venn_sal_ca); popViewport()
+
+# Salinity: Adult vs SE
+pushViewport(vps[[3]])
+grid.text("Salinity", y=0.99, gp=gpar(fontsize=18, fontface="bold"))
+venn_sal_se <- draw.pairwise.venn(
+    area1 = 233, area2 = 166, cross.area = 25,
+    category = c("Adult", "Larval SE"),
+    fill = c("grey90", larval_colors[2]),
+    alpha = rep(0.5, 2),
+    cat.pos = c(0, -10),
+    cat.dist = rep(0.025, 2),
+    ext.text = FALSE,
+    print.mode = "raw",
+    cex = 1.5,
+    cat.cex = 1.3,
+    fontfamily = "sans",
+    cat.fontfamily = "sans",
+    cat.fontface = "bold"
+); grid.draw(venn_sal_se); popViewport()
+
+# Salinity: Adult vs CASE
+pushViewport(vps[[4]])
+grid.text("Salinity", y=0.99, gp=gpar(fontsize=18, fontface="bold"))
+venn_sal_case <- draw.pairwise.venn(
+    area1 = 233, area2 = 281, cross.area = 33,
+    category = c("Adult", "Larval CASE"),
+    fill = c("grey90", larval_colors[3]),
+    alpha = rep(0.5, 2),
+    cat.pos = c(0, -10),
+    cat.dist = rep(0.025, 2),
+    ext.text = FALSE,
+    print.mode = "raw",
+    cex = 1.5,
+    cat.cex = 1.3,
+    fontfamily = "sans",
+    cat.fontfamily = "sans",
+    cat.fontface = "bold"
+); grid.draw(venn_sal_case); popViewport()
+
+# PC3: Adult vs Larval SE
+pushViewport(vps[[5]])
+grid.text("PC3", y=0.99, gp=gpar(fontsize=18, fontface="bold"))
+venn_pc3 <- draw.pairwise.venn(
+    area1 = 24, area2 = 121, cross.area = 1,
+    category = c("Adult", "Larval SE"),
+    fill = c("grey90", larval_colors[2]),
+    alpha = rep(0.5, 2),
+    cat.pos = c(0, -10),
+    cat.dist = rep(0.025, 2),
+    ext.text = FALSE,
+    print.mode = "raw",
+    cex = 1.5,
+    cat.cex = 1.3,
+    fontfamily = "sans",
+    cat.fontfamily = "sans",
+    cat.fontface = "bold"
+); grid.draw(venn_pc3); popViewport()
+
+# Add legend at the bottom
+pushViewport(viewport(x = 0.5, y = 0.02, width = 0.8, height = 0.1))
+grid.text("Larval Treatment", y = 1, gp=gpar(fontsize=12, fontface="bold"))
+legend_grob <- legendGrob(
+  labels = larval_treatments,
+  pch = rep(19, length(larval_treatments)),
+  gp = gpar(col = larval_colors),
+  nrow = 1
+)
+grid.draw(legend_grob)
+popViewport()
+dev.off()
+```
+
+```{r}
+library(VennDiagram)
+library(grid)
+
+png("venn_plots.png", width = 1800, height = 950) # Increased height for 2 rows
+
+# Define larval treatments/colors
+larval_treatments <- c("CA", "SE", "CASE")
+larval_colors <- c("#EFFD5F", "cadetblue2", "darkolivegreen3")
+
+# Set up 2x3 grid; coordinates are relative to a 2-row grid
+grid.newpage()
+pushViewport(viewport(layout = grid.layout(nrow = 2, ncol = 3, heights = unit(c(0.45, 0.5), "npc"))))
+
+# Helper for positioning
+vplayout <- function(row, col) viewport(layout.pos.row = row, layout.pos.col = col)
+
+# Row 1: PC2 and PC3 (centered, left/right empty)
+pushViewport(vplayout(1, 1))
+grid.text("PC2", y = 0.99, gp = gpar(fontsize = 18, fontface = "bold"))
+venn_pc2 <- draw.pairwise.venn(
+  area1 = 24, area2 = 65, cross.area = 1,
+  category = c("Adult", "Larval CA"),
+  fill = c("grey90", larval_colors[1]),
+  alpha = rep(0.5, 2),
+  cex = 1.5, cat.cex = 1.3,
+  fontfamily = "sans", cat.fontfamily = "sans", cat.fontface = "bold",
+  cat.pos = c(0, -10),
+  cat.dist = rep(0.025, 2),
+  ext.text = FALSE,
+  print.mode = "raw"
+)
+grid.draw(venn_pc2)
+popViewport()
+
+pushViewport(vplayout(1, 3))
+grid.text("PC3", y = 0.99, gp = gpar(fontsize = 18, fontface = "bold"))
+venn_pc3 <- draw.pairwise.venn(
+  area1 = 24, area2 = 121, cross.area = 1,
+  category = c("Adult", "Larval SE"),
+  fill = c("grey90", larval_colors[2]),
+  alpha = rep(0.5, 2),
+  cex = 1.5, cat.cex = 1.3,
+  fontfamily = "sans", cat.fontfamily = "sans", cat.fontface = "bold",
+  cat.pos = c(0, -10),
+  cat.dist = rep(0.025, 2),
+  ext.text = FALSE,
+  print.mode = "raw"
+)
+grid.draw(venn_pc3)
+popViewport()
+
+# Row 2 Salinity diagrams (CA, SE, CASE) with one grouped title above them
+pushViewport(viewport(layout.pos.row = 2, layout.pos.col = 1:3))
+grid.text("Salinity", y = 1, gp = gpar(fontsize = 18, fontface = "bold"))
+popViewport()
+
+pushViewport(vplayout(2, 1))
+venn_sal_ca <- draw.pairwise.venn(
+  area1 = 233, area2 = 59, cross.area = 10,
+  category = c("Adult", "Larval CA"),
+  fill = c("grey90", larval_colors[1]),
+  alpha = rep(0.5, 2),
+  cex = 1.5, cat.cex = 1.3,
+  fontfamily = "sans", cat.fontfamily = "sans", cat.fontface = "bold",
+  cat.pos = c(0, -10),
+  cat.dist = rep(0.025, 2),
+  ext.text = FALSE,
+  print.mode = "raw"
+)
+grid.draw(venn_sal_ca)
+popViewport()
+
+pushViewport(vplayout(2, 2))
+venn_sal_se <- draw.pairwise.venn(
+  area1 = 233, area2 = 166, cross.area = 25,
+  category = c("Adult", "Larval SE"),
+  fill = c("grey90", larval_colors[2]),
+  alpha = rep(0.5, 2),
+  cex = 1.5, cat.cex = 1.3,
+  fontfamily = "sans", cat.fontfamily = "sans", cat.fontface = "bold",
+  cat.pos = c(0, -10),
+  cat.dist = rep(0.025, 2),
+  ext.text = FALSE,
+  print.mode = "raw"
+)
+grid.draw(venn_sal_se)
+popViewport()
+
+pushViewport(vplayout(2, 3))
+venn_sal_case <- draw.pairwise.venn(
+  area1 = 233, area2 = 281, cross.area = 33,
+  category = c("Adult", "Larval CASE"),
+  fill = c("grey90", larval_colors[3]),
+  alpha = rep(0.5, 2),
+  cex = 1.5, cat.cex = 1.3,
+  fontfamily = "sans", cat.fontfamily = "sans", cat.fontface = "bold",
+  cat.pos = c(0, -10),
+  cat.dist = rep(0.025, 2),
+  ext.text = FALSE,
+  print.mode = "raw"
+)
+grid.draw(venn_sal_case)
+popViewport()
+
+# Single legend centered under all
+pushViewport(viewport(x = 0.5, y = 0.03, width = 0.7, height = 0.08, just = "center"))
+grid.text("Larval Treatment", y = 1, gp = gpar(fontsize = 13, fontface = "bold"))
+legend_grob <- legendGrob(
+  labels = larval_treatments,
+  pch = rep(19, 3),
+  gp = gpar(col = larval_colors),
+  nrow = 1
+)
+grid.draw(legend_grob)
+popViewport()
+
+dev.off()
+```
+
+```{r}
+library(VennDiagram)
+library(grid)
+library(RColorBrewer)
+
+png("venn_plots_pretty.png", width = 900, height = 900)
+
+# Colorblind-friendly colors plus gray for Adult
+larval_treatments <- c("Larval CA", "Larval SE", "Larval CASE", "Adult")
+larval_colors <- c(brewer.pal(3, "Set2"), "#bababa")
+
+grid.newpage()
+
+# --- Top Row ---
+# PC2 (left, closer to center)
+pushViewport(viewport(x = 0.3, y = 0.80, width = 0.35, height = 0.35, just = c("center","center")))
+grid.text("PC2", y = unit(0.9, "npc"), gp = gpar(fontsize = 24, fontface = "bold"))
+grid.text("A", x = unit(0.05, "npc"), y = unit(0.75, "npc"), gp = gpar(fontsize = 20))
+venn_pc2 <- draw.pairwise.venn(
+  area1 = 24, area2 = 65, cross.area = 1,
+  category = c("", ""),
+  fill = c(larval_colors[4], larval_colors[2]),
+  alpha = rep(0.8, 2),
+  lwd = 3, col = "gray20",
+  cex = 1.8, fontface = "bold", fontfamily = "sans",
+  cat.cex = 0, ext.text = FALSE, print.mode = "raw"
+)
+grid.draw(venn_pc2)
+popViewport()
+
+# PC3 (right, closer to center)
+pushViewport(viewport(x = 0.7, y = 0.80, width = 0.35, height = 0.35, just = c("center","center")))
+grid.text("PC3", y = unit(0.9, "npc"), gp = gpar(fontsize = 24, fontface = "bold"))
+grid.text("B", x = unit(0.05, "npc"), y = unit(0.75, "npc"), gp = gpar(fontsize = 20))
+venn_pc3 <- draw.pairwise.venn(
+  area1 = 24, area2 = 121, cross.area = 1,
+  category = c("", ""),
+  fill = c(larval_colors[4], larval_colors[3]),
+  alpha = rep(0.8, 2),
+  lwd = 3, col = "gray20",
+  cex = 1.8, fontface = "bold", fontfamily = "sans",
+  cat.cex = 0, ext.text = FALSE, print.mode = "raw"
+)
+grid.draw(venn_pc3)
+popViewport()
+
+# --- Unified "Salinity" Title centered across second and third row ---
+pushViewport(viewport(x = 0.5, y = 0.6, width = 0.4, height = 0.06, just = "center"))
+grid.text("Salinity", y = 1, gp = gpar(fontsize = 24, fontface = "bold"))
+popViewport()
+
+# --- Middle Row ---
+# Salinity CA (left, closer to center)
+pushViewport(viewport(x = 0.3, y = 0.5, width = 0.35, height = 0.35, just = c("center","center")))
+grid.text("C", x = unit(0.05, "npc"), y = unit(0.75, "npc"), gp = gpar(fontsize = 20))
+venn_sal_ca <- draw.pairwise.venn(
+  area1 = 233, area2 = 59, cross.area = 10,
+  category = c("", ""),
+  fill = c(larval_colors[4], larval_colors[2]),
+  alpha = rep(0.8, 2),
+  lwd = 3, col = "gray20",
+  cex = 1.8, fontface = "bold", fontfamily = "sans",
+  cat.cex = 0, ext.text = FALSE, print.mode = "raw"
+)
+grid.draw(venn_sal_ca)
+popViewport()
+
+# Salinity SE (right, closer to center)
+pushViewport(viewport(x = 0.7, y = 0.5, width = 0.35, height = 0.35, just = c("center","center")))
+grid.text("D", x = unit(0.05, "npc"), y = unit(0.75, "npc"), gp = gpar(fontsize = 20))
+venn_sal_se <- draw.pairwise.venn(
+  area1 = 233, area2 = 166, cross.area = 25,
+  category = c("", ""),
+  fill = c(larval_colors[4], larval_colors[3]),
+  alpha = rep(0.8, 2),
+  lwd = 3, col = "gray20",
+  cex = 1.8, fontface = "bold", fontfamily = "sans",
+  cat.cex = 0, ext.text = FALSE, print.mode = "raw"
+)
+grid.draw(venn_sal_se)
+popViewport()
+
+# --- Bottom Row: Salinity CASE Centered ---
+pushViewport(viewport(x = 0.5, y = 0.25, width = 0.35, height = 0.35, just = c("center","center")))
+grid.text("E", x = unit(0.05, "npc"), y = unit(0.75, "npc"), gp = gpar(fontsize = 20))
+venn_sal_case <- draw.pairwise.venn(
+  area1 = 233, area2 = 281, cross.area = 33,
+  category = c("", ""),
+  fill = c(larval_colors[4], larval_colors[1]),
+  alpha = rep(0.8, 2),
+  lwd = 3, col = "gray20",
+  cex = 1.8, fontface = "bold", fontfamily = "sans",
+  cat.cex = 0, ext.text = FALSE, print.mode = "raw"
+)
+grid.draw(venn_sal_case)
+popViewport()
+
+# --- Unified Legend at the bottom ---
+pushViewport(viewport(x = 0.5, y = 0.05, width = 0.8, height = 0.07, just = "center"))
+grid.text("Gene Dataset", y = 1, gp = gpar(fontsize = 24, fontface = "bold"))
+legend_grob <- legendGrob(
+  labels = larval_treatments[c(1,2,3,4)],
+  pch = rep(19, 4),
+  gp = gpar(col = larval_colors[c(2,3,1,4)], fontsize = 20, fontface = "bold"),
+  nrow = 1
+)
+grid.draw(legend_grob)
+popViewport()
+
+dev.off()
+```

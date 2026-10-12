@@ -111,13 +111,15 @@ par(mfrow = c(2, 2))
 for (i in 1:4)
   plot(x6$loadings[, i], pch = 19, cex = .3, ylab = paste0("Loadings PC", i))
 ```
-Top left, PC1, is determined by one (maybe 2) genomic regions, also likley still an inversion.
+Top left, PC1, is determined by one (maybe 2) genomic regions, also likely still an inversion. To minize outlier detection based on LD, I can apply LD thinning. I played around with the values for size and threshold to minimize LD clumps while retaining the most outlier SNPs. 
 
 ```{r}
 # performing SNP thinning in order to compute PCs
-res6 <- pcadapt(filename6, K = 20, LD.clumping = list(size = 5000, thr = 0.05))
+res6 <- pcadapt(filename6, K = 20, LD.clumping = list(size = 5000, thr = 0.1))
 plot(res6, option = "screeplot")
 ```
+
+Based on the Scree plot "elbow method" it seems that the most of the total variance is explained by 7 PCs 
 
 ```{r}
 # Score Plot
@@ -132,7 +134,12 @@ plot(res6, option = "scores", i = 3, j = 4, pop = poplist.names6)
 ```
 
 ```{r}
-res6 <- pcadapt(filename6, K = 2, LD.clumping = list(size = 5000, thr = 0.05))
+# PCA plot with PCs 5 and 6
+plot(res6, option = "scores", i = 5, j = 6, pop = poplist.names6)
+```
+
+```{r}
+res6 <- pcadapt(filename6, K = 7, LD.clumping = list(size = 5000, thr = 0.1))
 par(mfrow = c(1,1))
 for (i in 1)
   plot(res6$loadings[, i], pch = 19, cex = .3, ylab = paste0("Loadings PC", i))
@@ -141,6 +148,13 @@ for (i in 1)
 ```{r}
 plot(res6)
 ```
+```{r}
+#evaluating LD in dataset - looking to see if loading are still clustered in certain genomic regions (following https://bcm-uga.github.io/pcadapt/articles/pcadapt.html#f--linkage-disequilibrium-ld-thinning)
+par(mfrow = c(2, 2))
+for (i in 1:4)
+  plot(res6$loadings[, i], pch = 19, cex = .3, ylab = paste0("Loadings PC", i))
+```
+
 
 ```{r}
 res6$singular.values
@@ -173,6 +187,8 @@ alpha6 <- 0.1 # expected false discovery rate lower than 1% - raised from 0.05
 outliers6 <- which(qval6 < alpha6)
 outliers6
 ```
+
+With a K = 7 and LD.clumping values set to size = 5000 and thr = 0.1, 122 outlier SNPs are identified. 
 
 ```{r}
 # Save outliers to .txt file 
@@ -369,6 +385,7 @@ This file is used to plot figures for the software Bayescan in R.
 ```
 $ curl -L -O https://raw.githubusercontent.com/z0on/2bRAD_denovo/master/plot_R.r
 $ chmod +x plot_R.r
+```
 
 ## Remaining Bayescan steps are completed in RStudio:
 
@@ -381,7 +398,7 @@ plot_bayescan("SNP6_fst.txt")
 
 ```{r}
 # Identifying outliers using a False discovery rate of 10%.
-bs6 <- plot_bayescan("SNP6_fst.txt", FDR = 0.1)
+bs6 <- plot_bayescan("SNP6_fst.txt", FDR = 0.10)
 ```
 
 ```{r}
@@ -395,7 +412,11 @@ No outliers detected
 invisible(lapply(bs6, write, "outliers_bayescan.txt", append=TRUE))
 ```
 
-# LFMM
+
+# GEA outlier detection programs 
+
+
+## LFMM
 
 Following steps documented by pgugger [here](https://github.com/pgugger/LandscapeGenomics/blob/master/2019/Exercise3.md)
 
@@ -452,7 +473,7 @@ dat.imp_6 = read.lfmm("snp_6.lfmm_imputed.lfmm")
 
 ```{r}
 # Prepping the environmental data
-clim.env_6pops <- strata_6pops[,5:9]
+clim.env_6pops <- strata6_full[,5:44]
 colnames(clim.env_6pops) <- NULL
 row.names(clim.env_6pops) <- NULL
 clim.env_6pops
@@ -729,15 +750,17 @@ library(vcfR)
 ```{r}
 # to make it tab separated - sed 's/ \+/\t/g' snp_6.lfmm_imputed.lfmm  > snp_6.lfmm_imputed_tab.lfmm
 gen_6<-read.delim("snp_6.lfmm_imputed_tab.lfmm",header = FALSE)
+dim(gen_6)
 ```
 
 ```{r}
 #LFMM requires a complete dataframe. I am using the snp_6.lfmm_imputed_tab.lfmm file created for running lfmm above, which imputes missing data based on the most common genotype for each SNP. I will move forward with this and see what happens
+# No NAs 
 sum(is.na(gen_6))
 ```
 
 ```{r}
-env_6pops.lfmm <- strata_6pops
+env_6pops.lfmm <- strata6_full
 str(env_6pops.lfmm)
 ```
 
@@ -747,15 +770,24 @@ env_6pops.lfmm$Individual <- as.character(env_6pops.lfmm$Individual)
 ```
 
 ```{r}
-#subsetting the environmental dataset to just include the last 5 variables and then shortening their names
-pred_6 <- env_6pops.lfmm[,5:9]
-colnames(pred_6) <- c("SE","Temp","Sal","pH","DO")
+identical(rownames(gen_6), env_6pops.lfmm[,1]) 
+```
+
+```{r}
+#subsetting the environmental dataset to just include the environmental variables and then shortening their names
+pred_6 <- env_6pops.lfmm[,5:44]
+#colnames(pred_6) <- c("SE","Temp","Sal","pH","DO")
 ```
 
 ```{r}
 # Running a PCA on the environmental variables. We can use the first PC as a synthetic predictor
 pred_6.pca <- rda(pred_6, scale=T)
 summary(pred_6.pca)$cont
+```
+
+```{r}
+#plotting PCA 
+plot(pred_6.pca)
 ```
 
 ```{r}
@@ -767,7 +799,7 @@ screeplot(pred_6.pca, main = "Screeplot: Eigenvalues of Oyster Predictor Variabl
 round(scores(pred_6.pca, choices=1:5, display="species", scaling=0), digits=3)
 ```
 
-46% of the variance in the predictors is explained by the first PC axis, and 27% by the second axis. We could follow up with an LFMM model using the second axis as a predictor, if we wanted. The strongest correlations with PC1 are temperature (Temp), Sewage Effluent (SE), Dissolved Oxygen (DO) and Salinity (Sal).
+49% of the variance in the predictors is explained by the first PC axis, and 22% by the second axis. We could follow up with an LFMM model using the second axis as a predictor, if we wanted. The strongest correlations with PC1 are temperature (Temp), Sewage Effluent (SE), Dissolved Oxygen (DO) and Salinity (Sal).
 
 We’ll store our synthetic PC axis predictor as pred.PC1 for use in LFMM.
 
@@ -822,7 +854,7 @@ An appropriately calibrated set of tests will have a GIF of around 1. The elevat
 hist(oys_6.pv$pvalue[,1], main="Unadjusted p-values")        
 hist(oys_6.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
 ```
-There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the adjusted p-value histogram.
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
 
 ```{r}
 # Let's change the GIF and readjust the p-values:
@@ -840,7 +872,7 @@ adj.pv6 <- pchisq(zscore_6^2/new.gif6, df=1, lower = FALSE)
 ```{r}
 # plot the p-value histograms with the new gif
 hist(oys_6.pv$pvalue[,1], main="Unadjusted p-values")        
-hist(oys_6.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.02)")
+hist(oys_6.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.08)")
 hist(adj.pv6, main="REadjusted p-values (GIF=1.00)")
 ```
 
@@ -853,7 +885,7 @@ length(which(oys_6.qv < 0.1)) ## how many SNPs have an FDR < 10%?
 ```
 
 ```{r}
-(oys_6.FDR.1 <- colnames(gen_6)[which(oys_6.qv < 0.1)]) ## i.entify which SNPs these are
+(oys_6.FDR.1 <- colnames(gen_6)[which(oys_6.qv < 0.1)]) ## identify which SNPs these are
 ```
 
 ```{r}
@@ -864,3 +896,7 @@ oys_outlier_6pops <- oys_6.FDR.1%>%str_replace("V","")
 ```{r}
 invisible(lapply(oys_outlier_6pops, write, "outliers_lfmm2_6pops.txt", append=TRUE))
 ```
+
+
+
+
