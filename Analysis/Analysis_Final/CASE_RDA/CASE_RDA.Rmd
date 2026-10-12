@@ -2754,6 +2754,8 @@ bedtools intersect -wb -a Adult.PC2.Cand.Loci.bed -b ../sorted.ref3.0.gene.bed |
 
 24 adult genes for PC3 
 
+> Note: the manually made PC3 list (24 genes) could not be reproduced. The scripted list built from the non-inversion pcadapt outliers (`outliers6p9g9_db_noinvert.recode.vcf`, 22 SNPs) has 15 genes; it is built in the overlap-test section below as `Adult.PC3.Cand.Genes` and should replace `adult.cand.PC3.uniq.gene` in the counts and Venn diagrams here.
+
 ```{bash}
 # Salinity loci
 cut -f1,2 Sal_adult_outliers_all | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > Adult.Sal.Cand.Loci.bed
@@ -2846,6 +2848,378 @@ comm -12 <(sort Sal.SEFACT.larv.adult.shared.genes) <(sort Sal.CASEONLY.larv.adu
 
 ```{bash, eval=FALSE}
 comm -12 <(sort Sal.CAONLY.larv.adult.shared.genes) <(sort Sal.CASEONLY.larv.adult.shared.genes) | wc -l
+```
+
+## Larval–adult shared genes: overlap tests and GO enrichment
+
+```{r, include=FALSE}
+dir.create("figures", showWarnings = FALSE)
+```
+
+Shared genes = larval candidate genes ∩ adult candidate genes, for each larval stressor (CA, SE, CASE) and adult environmental association (Salinity, PC2, PC3).
+
+Design choices:
+
+- **One larval gene-set definition throughout:** `FULL` lists (all candidate genes per stressor, `Sig.loci.1.<stressor>.LOC`, from the CASE analysis in `Puritz_etal_CASE`), plus `CASE.ONLY`. FACTOR lists were nearly identical to FULL and are dropped.
+- **Overlap is tested against chance** (hypergeometric) before any GO, within the gene universe that could have been hit in both datasets.
+- **GO is run on Salinity only.** PC2 and PC3 share 1–8 annotated genes with any larval set, too few for enrichment, so they are reported as gene tables.
+- **Two GO backgrounds:** `genome` (all GO-annotated genes) and `testable` (genes hit by both a CMH-tested larval locus and a tested adult SNP). topGO settings match the CASE analysis: weight01, Fisher's exact test, top 100 nodes, p < 0.05 (not corrected for multiple testing). Plots show only terms with at least 2 shared genes.
+
+Inputs expected in the working directory: `sorted.ref3.0.gene.bed`, `gene2go_full.tab`, `Sig.loci.1.{CA,SE,CASE}.LOC`, `CASE.ONLY.Larv.Sig.Gene`, `universe.sampled.LOC` (genes hit by any CMH-tested larval locus; built in `Puritz_etal_CASE/analysis/CASE_supplemental_GO_background_and_He_null.Rmd`), `Adult.Sal.Cand.Genes`, `Adult.PC2.Cand.Genes`, the adult VCFs named below, and `outliers6p9g9_db_noinvert.recode.vcf`.
+
+Build the adult PC3 candidate genes (previously made by hand; the earlier scripted version accidentally read the PC2 loci) and the adult tested-gene universes. `adult_snp_vcf` is the final adult SNP set the outliers were called from; `adult_lenient_vcf` is the same set before the MAF and biallelic filters, used as a sensitivity check.
+
+```{bash}
+if [ ! -s Adult.PC3.Cand.Genes ]; then
+  mawk '!/#/' outliers6p9g9_db_noinvert.recode.vcf | cut -f1,2 | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > Adult.PC3.Cand.Loci.bed
+  bedtools intersect -wb -a Adult.PC3.Cand.Loci.bed -b sorted.ref3.0.gene.bed | grep -oh "gene=LOC.*;g" | sed 's/gene=//g' | sed 's/;g//g' | sort | uniq > Adult.PC3.Cand.Genes
+fi
+
+adult_snp_vcf=SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf
+
+if [ ! -s Adult.tested.LOC ]; then
+  mawk '!/#/' $adult_snp_vcf | cut -f1,2 | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > Adult.tested.Loci.bed
+  bedtools intersect -wb -a Adult.tested.Loci.bed -b sorted.ref3.0.gene.bed | grep -oh "gene=LOC.*;g" | sed 's/gene=//g' | sed 's/;g//g' | sort | uniq > Adult.tested.LOC
+fi
+
+ft_url=https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/002/022/765/GCF_002022765.2_C_virginica-3.0/GCF_002022765.2_C_virginica-3.0_feature_table.txt.gz
+if [ ! -s feature_table.txt.gz ]; then
+  curl -sSL -o feature_table.txt.gz $ft_url || wget -q -O feature_table.txt.gz $ft_url
+fi
+ls -la feature_table.txt.gz
+
+adult_lenient_vcf=SNP.TRS6newdp10mafp9g9nDNA.recode.vcf.gz
+
+if [ ! -s Adult.tested.lenient.LOC ]; then
+  gzip -dc $adult_lenient_vcf | mawk '!/#/' | cut -f1,2 | sort -k1,2 | uniq | mawk '{print $1 "\t" $2-1 "\t" $2}' | bedtools sort -i - > Adult.tested.lenient.Loci.bed
+  bedtools intersect -wb -a Adult.tested.lenient.Loci.bed -b sorted.ref3.0.gene.bed | grep -oh "gene=LOC.*;g" | sed 's/gene=//g' | sed 's/;g//g' | sort | uniq > Adult.tested.lenient.LOC
+fi
+
+wc -l Adult.tested.LOC Adult.tested.lenient.LOC universe.sampled.LOC Adult.Sal.Cand.Genes Adult.PC2.Cand.Genes Adult.PC3.Cand.Genes
+```
+
+```{r, include=FALSE}
+library(topGO)
+library(tidyr)
+```
+
+```{r}
+gene2go_file         <- "gene2go_full.tab"
+feature_table_file   <- "feature_table.txt.gz"
+larval_universe_file <- "universe.sampled.LOC"
+adult_universe_file  <- "Adult.tested.LOC"
+
+larval_files <- c(CA = "Sig.loci.1.CA.LOC", SE = "Sig.loci.1.SE.LOC",
+                  CASE = "Sig.loci.1.CASE.LOC", CASE.ONLY = "CASE.ONLY.Larv.Sig.Gene")
+adult_files  <- c(Salinity = "Adult.Sal.Cand.Genes", PC2 = "Adult.PC2.Cand.Genes", PC3 = "Adult.PC3.Cand.Genes")
+
+needed  <- c(gene2go_file, larval_universe_file, adult_universe_file, larval_files, adult_files)
+missing <- needed[!file.exists(needed)]
+if (length(missing)) warning("Missing input files: ", paste(missing, collapse = ", "))
+
+read_genes <- function(f) if (file.exists(f)) unique(trimws(readLines(f))) else character(0)
+
+larval <- lapply(larval_files, read_genes)
+adult  <- lapply(adult_files, read_genes)
+full_stressors <- c("CA", "SE", "CASE")
+
+gene2go_topgo <- readMappings(gene2go_file, IDsep = ";", sep = "\t")
+annotated     <- setdiff(names(gene2go_topgo), "gene_name")
+testable_all  <- intersect(read_genes(larval_universe_file), read_genes(adult_universe_file))
+
+universes <- list(genome = annotated, testable = intersect(annotated, testable_all))
+c(testable_any = length(testable_all), sapply(universes, length))
+
+gene_names <- data.frame(gene = character(0), product = character(0))
+if (file.exists(feature_table_file) && file.size(feature_table_file) > 0) {
+  ft <- read.delim(gzfile(feature_table_file), quote = "", stringsAsFactors = FALSE)
+  gene_names <- ft %>%
+    filter(X..feature == "CDS", symbol != "") %>%
+    transmute(gene = symbol, product = name) %>%
+    distinct(gene, .keep_all = TRUE)
+}
+c(genes_with_product = nrow(gene_names), annotated_matched = sum(annotated %in% gene_names$gene))
+```
+
+### Is the larval–adult overlap larger than chance?
+
+Hypergeometric test (one-sided; equivalent to a one-sided Fisher's exact test). Both candidate lists are first restricted to the universe. Two adult gene spaces are compared:
+
+- `strict`: genes with a SNP in the final adult analysis set (`SNP.TRS6newdp10mafp9g9nDNAmaf052A`, MAF ≥ 0.05, biallelic), where adult outliers were called. This is the detectability null and the primary test.
+- `lenient`: genes with a SNP in `SNP.TRS6newdp10mafp9g9nDNA` (same filters, without the MAF and biallelic steps). This approximates the shared captured gene space and is a sensitivity check.
+
+Each is intersected with the larval CMH-tested gene universe. P-values are not corrected for multiple testing; Salinity × FULL CA, SE and CASE is the a priori comparison, and PC2/PC3 results are exploratory. Significance threshold: p < 0.05 (`p_alpha`).
+
+```{r}
+p_alpha <- 0.05
+larval_universe <- read_genes(larval_universe_file)
+overlap_universes <- list(
+  strict  = intersect(larval_universe, read_genes(adult_universe_file)),
+  lenient = intersect(larval_universe, read_genes("Adult.tested.lenient.LOC"))
+)
+sapply(overlap_universes, length)
+
+hyper_overlap <- function(U) {
+  expand.grid(larval_set = names(larval), adult_var = names(adult), stringsAsFactors = FALSE) %>%
+    rowwise() %>%
+    mutate(
+      n_universe = length(U),
+      n_larval   = length(intersect(larval[[larval_set]], U)),
+      n_adult    = length(intersect(adult[[adult_var]], U)),
+      n_shared   = length(Reduce(intersect, list(larval[[larval_set]], adult[[adult_var]], U))),
+      expected   = n_larval * n_adult / n_universe,
+      fold       = n_shared / expected,
+      p          = phyper(n_shared - 1, n_adult, n_universe - n_adult, n_larval, lower.tail = FALSE)
+    ) %>%
+    ungroup()
+}
+
+overlap_all <- bind_rows(lapply(names(overlap_universes), function(u)
+    mutate(hyper_overlap(overlap_universes[[u]]), universe = u))) %>%
+  relocate(universe)
+
+overlap_all %>%
+  arrange(universe, adult_var, larval_set) %>%
+  knitr::kable(digits = c(0, 0, 0, 0, 0, 0, 0, 1, 2, 4))
+```
+
+Strict vs lenient side by side:
+
+```{r}
+overlap_all %>%
+  dplyr::select(universe, larval_set, adult_var, n_shared, expected, fold, p) %>%
+  pivot_wider(names_from = universe, values_from = c(n_shared, expected, fold, p)) %>%
+  knitr::kable(digits = 3)
+
+overlap_test <- filter(overlap_all, universe == "strict")
+```
+
+```{r, fig.width=13.33, fig.height=7.5}
+p_fold <- overlap_test %>%
+  mutate(larval_set = factor(larval_set, levels = names(larval)),
+         adult_var  = factor(adult_var, levels = names(adult)),
+         sig        = ifelse(p < p_alpha, paste("p <", p_alpha), "n.s."),
+         label      = paste0(n_shared, " / ", round(expected, 1),
+                             ifelse(p < 0.001, "\n***", ifelse(p < 0.01, "\n**", ifelse(p < p_alpha, "\n*", ""))))) %>%
+  ggplot(aes(x = larval_set, y = fold, fill = sig)) +
+  geom_col(width = 0.7, colour = "grey20") +
+  geom_hline(yintercept = 1, linetype = "dashed", colour = "grey60") +
+  geom_text(aes(label = label), vjust = -0.3, size = 5, colour = "black", lineheight = 0.9) +
+  scale_fill_manual(values = setNames(c("#4FC3F7", "grey45"), c(paste("p <", p_alpha), "n.s.")), name = NULL) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.25))) +
+  facet_wrap(~ adult_var) +
+  labs(x = "Larval gene set", y = "Fold enrichment (observed / expected)",
+       title = "Larval stressor genes shared with adult environmental-association genes") +
+  theme_minimal()
+p_fold
+ggsave(file.path("figures", paste0("Overlap_fold_enrichment", ".png")), p_fold, width = 13.3333, height = 7.5, dpi = 300, bg = "white")
+```
+
+Bar labels are shared / expected genes; stars mark uncorrected p < 0.05 (\*), < 0.01 (\*\*) and < 0.001 (\*\*\*).
+
+### Venn region counts (Fig. S8)
+
+Exclusive region counts (each gene counted once, in its most specific region) for the larval–adult Venn diagrams, using the FULL larval lists and the corrected adult PC3 list. Gene lists are not restricted to the testable universe.
+
+```{r, results='asis'}
+venn_regions <- function(sets) {
+  all_genes <- Reduce(union, sets)
+  member <- sapply(sets, function(x) all_genes %in% x)
+  combos <- unlist(lapply(seq_along(sets), function(k) combn(names(sets), k, simplify = FALSE)), recursive = FALSE)
+  data.frame(
+    region = vapply(combos, paste, "", collapse = " ∩ "),
+    n = vapply(combos, function(cmb) sum(rowSums(member[, cmb, drop = FALSE]) == length(cmb) &
+                                         rowSums(member) == length(cmb)), 0L)
+  )
+}
+
+venn_defs <- list(
+  CA   = list(`Adult PC2` = adult$PC2, `Adult Salinity` = adult$Salinity, `Larval CA` = larval$CA),
+  SE   = list(`Adult PC3` = adult$PC3, `Adult Salinity` = adult$Salinity, `Larval SE` = larval$SE),
+  CASE = list(`Adult PC3` = adult$PC3, `Adult Salinity` = adult$Salinity, `Larval CASE` = larval$CASE, `Adult PC2` = adult$PC2)
+)
+
+for (v in names(venn_defs)) {
+  cat("\n####", v, "\n")
+  print(knitr::kable(venn_regions(venn_defs[[v]])))
+  cat("\nSet totals:", paste(names(venn_defs[[v]]), lengths(venn_defs[[v]]), sep = " = ", collapse = "; "), "\n")
+}
+```
+
+### Shared genes for PC2 and PC3
+
+```{r}
+shared_long <- expand.grid(adult_var = names(adult), larval_set = names(larval), stringsAsFactors = FALSE) %>%
+  rowwise() %>%
+  reframe(adult_var, larval_set, gene = intersect(larval[[larval_set]], adult[[adult_var]])) %>%
+  mutate(present = TRUE) %>%
+  pivot_wider(names_from = larval_set, values_from = present, values_fill = FALSE) %>%
+  left_join(gene_names, by = "gene") %>%
+  mutate(GO_annotated = gene %in% annotated) %>%
+  arrange(adult_var, gene)
+
+shared_long %>% filter(adult_var != "Salinity") %>% knitr::kable()
+```
+
+### GO enrichment: Salinity
+
+```{r}
+run_go_set <- function(cand, universe) {
+  gene_list <- factor(as.integer(universe %in% cand), levels = 0:1)
+  names(gene_list) <- universe
+  if (sum(gene_list == 1) == 0) return(NULL)
+
+  res <- lapply(c("BP", "CC", "MF"), function(ont) {
+    invisible(capture.output(suppressMessages({
+      god <- new("topGOdata", ontology = ont, gene2GO = gene2go_topgo,
+                 allGenes = gene_list, annot = annFUN.gene2GO)
+      fe  <- runTest(god, algorithm = "weight01", statistic = "fisher")
+    })))
+    tab <- GenTable(god, Fisher = fe, orderBy = "Fisher", topNodes = 100, numChar = 100)
+    tab$Fisher <- as.numeric(sub("^< ?", "", tab$Fisher))
+    tab <- tab[tab$Fisher < 0.05, ]
+    if (!nrow(tab)) return(NULL)
+    term_genes <- genesInTerm(god, tab$GO.ID)
+    tab$genes <- vapply(tab$GO.ID, function(id) paste(intersect(term_genes[[id]], cand), collapse = ";"), "")
+    tab$ontology <- c(BP = "Biological Process", CC = "Cellular Component", MF = "Molecular Function")[ont]
+    tab
+  })
+  bind_rows(res)
+}
+
+sal_sets <- c(lapply(larval, intersect, adult$Salinity),
+              list(Pooled = intersect(Reduce(union, larval[full_stressors]), adult$Salinity)))
+sapply(sal_sets, length)
+
+stressor_tag <- function(genes) {
+  g <- strsplit(genes, ";")[[1]]
+  paste(full_stressors[vapply(full_stressors, function(s) any(g %in% larval[[s]]), TRUE)], collapse = "·")
+}
+```
+
+```{r, warning=FALSE}
+go_sal <- list()
+for (set in names(sal_sets)) {
+  for (bg in names(universes)) {
+    r <- suppressWarnings(run_go_set(sal_sets[[set]], universes[[bg]]))
+    if (!is.null(r) && nrow(r)) go_sal[[length(go_sal) + 1]] <- mutate(r, set = set, background = bg)
+  }
+}
+if (!length(go_sal)) stop("No significant GO terms for any Salinity set")
+go_sal <- bind_rows(go_sal) %>%
+  rowwise() %>% mutate(stressors = stressor_tag(genes)) %>% ungroup()
+
+go_sal %>%
+  mutate(multi_gene = Significant >= 2) %>%
+  count(set, background, multi_gene) %>%
+  pivot_wider(names_from = c(background, multi_gene), values_from = n, values_fill = 0,
+              names_glue = "{background}_{ifelse(multi_gene, '2plus', '1gene')}") %>%
+  knitr::kable()
+
+go_sal %>%
+  filter(set == "Pooled", Significant >= 2) %>%
+  dplyr::select(background, ontology, GO.ID, Term, Significant, Fisher, stressors, genes) %>%
+  arrange(background, ontology, Fisher) %>%
+  knitr::kable(digits = 4)
+```
+
+Genes behind the multi-gene pooled terms:
+
+```{r}
+go_sal %>%
+  filter(set == "Pooled", Significant >= 2) %>%
+  dplyr::select(background, Term, genes) %>%
+  separate_rows(genes, sep = ";") %>%
+  group_by(gene = genes) %>%
+  summarise(terms = paste(unique(Term), collapse = "; "),
+            backgrounds = paste(sort(unique(background)), collapse = ", "), .groups = "drop") %>%
+  left_join(gene_names, by = "gene") %>%
+  mutate(stressors = vapply(gene, stressor_tag, "")) %>%
+  dplyr::select(gene, product, stressors, backgrounds, terms) %>%
+  arrange(desc(backgrounds), gene) %>%
+  knitr::kable()
+```
+
+```{r, fig.width=16, fig.height=9}
+trunc_term <- function(x, n = 50) ifelse(nchar(x) > n, paste0(substr(x, 1, n - 1), "…"), x)
+
+top_terms <- function(df, facet_var, n_top) {
+  df %>%
+    filter(Significant >= 2) %>%
+    group_by(ontology, .data[[facet_var]]) %>%
+    slice_min(Fisher, n = n_top, with_ties = FALSE) %>%
+    ungroup() %>%
+    mutate(Term = trunc_term(Term))
+}
+
+p_pooled <- go_sal %>%
+  filter(set == "Pooled") %>%
+  top_terms("background", 6) %>%
+  mutate(background = factor(background, levels = names(universes))) %>%
+  ggplot(aes(x = -log10(Fisher), y = reorder(Term, -Fisher), size = Significant)) +
+  geom_vline(xintercept = -log10(0.05), linetype = "dashed", colour = "grey60") +
+  geom_point(shape = 21, fill = "#4FC3F7", colour = "grey20", alpha = 0.9) +
+  geom_text(aes(label = stressors), size = 4, colour = "grey30", hjust = -0.3, show.legend = FALSE) +
+  scale_size(range = c(3, 9), name = "Shared genes\nin term") +
+  scale_x_continuous(expand = expansion(mult = c(0.05, 0.6))) +
+  coord_cartesian(clip = "off") +
+  facet_grid(ontology ~ background, scales = "free_y", space = "free_y", drop = FALSE) +
+  labs(x = expression(-log[10](italic(p))), y = NULL,
+       title = "Larval stressor genes shared with adult salinity genes") +
+  theme_minimal()
+p_pooled
+ggsave(file.path("figures", paste0("GO_Sal_pooled", ".png")), p_pooled, width = 16, height = 9, dpi = 300, bg = "white")
+
+for (bg in names(universes)) {
+  df <- filter(go_sal, set != "Pooled", background == bg)
+  if (!nrow(filter(df, Significant >= 2))) { message("No multi-gene terms: ", bg); next }
+  p <- df %>%
+    top_terms("set", 5) %>%
+    mutate(set = factor(set, levels = names(larval))) %>%
+    ggplot(aes(x = -log10(Fisher), y = reorder(Term, -Fisher), size = Significant)) +
+    geom_vline(xintercept = -log10(0.05), linetype = "dashed", colour = "grey60") +
+    geom_point(shape = 21, fill = "#FFB74D", colour = "grey20", alpha = 0.9) +
+    scale_size(range = c(3, 9), name = "Shared genes\nin term") +
+    facet_grid(ontology ~ set, scales = "free_y", space = "free_y", drop = FALSE) +
+    labs(x = expression(-log[10](italic(p))), y = NULL,
+         title = paste0("Salinity-shared genes by larval stressor (", bg, " background)")) +
+    theme_minimal()
+  print(p)
+  ggsave(file.path("figures", paste0(paste0("GO_Sal_by_stressor_", bg), ".png")), p, width = 16, height = 9, dpi = 300, bg = "white")
+}
+```
+
+## Adult non-inversion outlier PCA
+
+PCA of the 327 non-inversion adult outlier SNPs (the 390 final outliers minus SNPs in the large inversions), the set behind the minimum-salinity PCA (Axis 1 = 8.52%, Axis 2 = 4.93%).
+
+```{bash}
+if [ ! -s outliers_full_final_noinvert.recode.vcf ]; then
+  vcftools --vcf outliers_full_final.recode.vcf --exclude-bed Detected_large_inversions.bed --recode --recode-INFO-all --out outliers_full_final_noinvert 2>&1 | grep 'kept'
+fi
+```
+
+```{r}
+pop_order_adult <- c("BAR", "BIS", "GB", "KIC", "MCD", "PVD")
+
+noinv_gi <- vcfR2genind(read.vcfR("outliers_full_final_noinvert.recode.vcf", verbose = FALSE),
+                        pop = rep(pop_order_adult, each = 10))
+noinv_pca <- dudi.pca(scaleGen(noinv_gi, NA.method = "mean"), center = FALSE, scale = FALSE,
+                      scannf = FALSE, nf = 4)
+noinv_eig <- round(noinv_pca$eig / sum(noinv_pca$eig) * 100, 2)
+c(n_loci = nLoc(noinv_gi), axis1 = noinv_eig[1], axis2 = noinv_eig[2])
+
+p_noinv_pca <- as.data.frame(noinv_pca$li) %>%
+  rownames_to_column("ind") %>%
+  mutate(pop = factor(pop(noinv_gi), levels = pop_order_adult)) %>%
+  ggplot(aes(x = Axis1, y = Axis2, colour = pop)) +
+  geom_point(size = 3, alpha = 0.8) +
+  scale_colour_manual(values = cols_6pops, name = "Sample site") +
+  labs(x = paste0("Axis 1: ", noinv_eig[1], "%"), y = paste0("Axis 2: ", noinv_eig[2], "%")) +
+  coord_fixed(ratio = 1) +
+  theme_minimal()
+p_noinv_pca
+ggsave(file.path("figures", "Adult_outlier_PCA_noinvert.png"), p_noinv_pca, width = 6, height = 4.6, dpi = 300, bg = "white")
 ```
 
 ## Venn Diagram of overlapped gene sets 
