@@ -1,0 +1,122 @@
+---
+title: "NB_OutlierDetection_6pops_12500snps"
+author: "Amy Zyck"
+date: '2024-05-02'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# PCAdapt
+
+```{r}
+# Convert VCF file to pcadapt format
+
+vcf2pcadapt("SNP.TRS6dp10g5mafMIp9g95nDNAmaf0252A.recode.vcf", output = "tmp.pcadapt6_12500snps", allele.sep = c("/", "|"))
+
+filename6_12500snps <- read.pcadapt("tmp.pcadapt6_12500snps", type = "pcadapt")
+```
+
+```{r}
+# Choosing the number K of Principal Components
+# We start off with a large number of PCs
+x6_12500snps <- pcadapt(input = filename6_12500snps, K = 20)
+```
+
+```{r}
+# Plot the likelihoods using a screeplot
+plot(x6_12500snps, option = "screeplot")
+```
+
+```{r}
+# Plotting likelihoods again, but with 10 Principal Components
+plot(x6_12500snps, option = "screeplot", K = 10)
+```
+
+```{r}
+# Create population designations minus NAR, NAR2, GHP
+poplist.names6 <- c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10), rep("KIC", 10),rep("MCD", 10), rep("PVD", 10))
+```
+
+```{r}
+# Score Plot
+# Plot the first two PCs
+plot(x6_12500snps, option = "scores", pop = poplist.names6)
+```
+
+```{r}
+# PCA plot with PCs 3 and 4
+plot(x6_12500snps, option = "scores", i = 3, j = 4, pop = poplist.names6)
+```
+
+```{r}
+#evaluating LD in dataset - looking to see if loading are clustered in certain genomic regions (following https://bcm-uga.github.io/pcadapt/articles/pcadapt.html#f--linkage-disequilibrium-ld-thinning)
+par(mfrow = c(2, 2))
+for (i in 1:4)
+  plot(x6_12500snps$loadings[, i], pch = 19, cex = .3, ylab = paste0("Loadings PC", i))
+```
+
+Top left, PC1, is determined by one (maybe 2) genomic regions, also likely still an inversion.
+
+```{r}
+# performing SNP thinning in order to compute PCs
+res6_12500snps <- pcadapt(filename6_12500snps, K = 20, LD.clumping = list(size = 5000, thr = 0.1))
+plot(res6_12500snps, option = "screeplot")
+```
+
+```{r}
+# Score Plot
+# Plot the first two PCs
+plot(res6_12500snps, option = "scores", pop = poplist.names6)
+```
+
+```{r}
+# PCA plot with PCs 3 and 4
+plot(res6_12500snps, option = "scores", i = 3, j = 4, pop = poplist.names6)
+```
+
+```{r}
+res6_12500snps <- pcadapt(filename6_12500snps, K = 3, LD.clumping = list(size = 5000, thr = 0.1))
+par(mfrow = c(1,1))
+for (i in 1)
+  plot(res6_12500snps$loadings[, i], pch = 19, cex = .3, ylab = paste0("Loadings PC", i))
+```
+
+```{r}
+plot(res6_12500snps)
+```
+
+```{r}
+res6_12500snps$singular.values
+```
+
+```{r}
+# Create Q-Q Plot
+plot(res6_12500snps, option = "qqplot", threshold = 0.1)
+```
+
+
+```{r}
+# Look at p-value distribution 
+plot(res6_12500snps, option = "stat.distribution")
+```
+
+#### Assigning an alpha value
+
+```{r}
+library(qvalue) # transforms p-values into q-values.
+```
+
+```{r}
+qval6_12500snps <- qvalue(res6_12500snps$pvalues)$qvalues
+alpha6_12500snps <- 0.1 # expected false discovery rate lower than 1% - raised from 0.05
+```
+
+#### Save Outliers
+
+```{r}
+outliers6_12500snps <- which(qval6_12500snps < alpha6_12500snps)
+outliers6_12500snps
+```

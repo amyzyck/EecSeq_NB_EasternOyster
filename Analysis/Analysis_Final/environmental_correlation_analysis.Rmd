@@ -34,7 +34,7 @@ library(ggfortify)
 # Subsetting the strata file to just include the environmental variables
 # Also shortening the column names
 # Transposing dataframe under new name - need this for running and plotting PCA 
-strata6_full <- read.csv("strata6.csv", header=TRUE)
+strata6_full <- read.table("strata6_full", header=TRUE)
 env_data_pop <- strata6_full %>% distinct(Population, .keep_all = TRUE)
 env_data_pop <- env_data_pop[,5:44]
 colnames(env_data_pop) <- c("SE","T_Avg","T_Min","T_Max","Sal_Avg","Sal_Min","Sal_Max","pH_Avg","DO_Avg",	"May_T_Avg","May_T_Min","May_T_Max","May_Sal_Avg","May_Sal_Min","May_Sal_Max","May_pH_Avg","May_DO_Avg",	"Jun_T_Avg","Jun_T_Min","Jun_T_Max","Jun_Sal_Avg","Jun_Sal_Min","Jun_Sal_Max","Jun_pH_Avg","Jun_DO_Avg","Jul_T_Avg",	"Jul_T_Min","Jul_T_Max","Jul_Sal_Avg","Jul_Sal_Min","Jul_Sal_Max","Jul_pH_Avg","Jul_DO_Avg","Aug_T_Avg","Aug_T_Min",	"Aug_T_Max","Aug_pH_Avg","Sept_T_Avg","Sept_T_Min","Sept_T_Max")
@@ -93,11 +93,6 @@ summary(env_pca_corr)
 ```{r}
 # Saving loadings from PCA as dataframe 
 corr_pca_loadings <- as.data.frame(env_pca_corr$rotation)
-```
-
-```{r}
-# Adding populations as rownames to data set for PCA 
-row.names(env_data_pop) <- c("BAR", "BIS", "GB", "KIC", "MCD", "PVD")
 ```
 
 ```{r}
@@ -225,7 +220,7 @@ strata6_pca_coll_method <- strata6_full[,!(names(strata6_full) %in% drop)]
 
 strata6_pca_coll_method
 
-write.table(strata6_pca_coll_method, "/home/azyck/NB_capture_both/NB_ddhaplo/NB_ddhaplo_working/NB_OutlierDetection_working/strata6_pcacoll_35var", sep="\t", quote=F, row.names=F)
+write.table(strata6_pca_coll_method, "/home/azyck/NB_capture_both/NB_ddhaplo/NB_ddhaplo_working/NB_PopSeaGen_Analysis_working/strata6_pca_coll_method", sep="\t", quote=F, row.names=F)
 ```
 
 
@@ -261,15 +256,14 @@ summary(env_pca_col)
 It looks like the first 3 PCs explain a majority of the variance. I will save these and include them as new "environmental variables". 
 
 ```{r}
-# Save scores for PCs 1-3 to new variable
+# Save scores for PCs 1-5 to new variable
 pc_scores_env <- env_pca_col$x
 pc_scores_3 <- pc_scores_env[,1:3]
-pc_scores_3 <- as.data.frame(pc_scores_3)
 ```
 
 ```{r}
-# Plotting env_pca_col results with variables as loadings 
-autoplot(env_pca_col, data = env_data_pop[,2:40], shape = FALSE, label = TRUE, loadings = TRUE, loadings.label = TRUE, loadings.label.size = 3)
+# Save loadings to new variable for determining central variables in each cluster
+pc_loadings_env <- env_pca_col$rotation[,1:3]
 ```
 
 ```{r}
@@ -293,48 +287,55 @@ ggplot(cluster_data_all, aes(x = PC1, y = PC2, color = Cluster)) +
 Within these 8 clusters, I'm going to identify the variable closest to the centroid. This will represent all variables of the cluster. 
 
 ```{r}
-find_closest_to_cluster_center <- function(pca_result, kmeans_result) {
-  # Extract the principal component scores
-  pc_scores <- pca_result$x
+find_closest_to_centroid <- function(kmeans_results, pca_loadings, num_pcs = 6) {
+  # Ensure the number of PCs does not exceed the number of available PCs
+  num_pcs <- min(num_pcs, ncol(pca_loadings))
   
-  # Get the number of clusters
-  n_clusters <- length(unique(kmeans_result$cluster))
+  # Initialize a list to store the closest variables for each cluster
+  closest_vars <- list()
   
-  # Initialize a list to store results
-  closest_variables <- list()
+  # Number of clusters
+  num_clusters <- nrow(kmeans_results$centers)
   
-  for (i in 1:n_clusters) {
-    # Get the indices of variables in this cluster
-    cluster_indices <- which(kmeans_result$cluster == i)
+  # Iterate over each cluster
+  for (cluster in 1:num_clusters) {
+    # Get the centroid of the current cluster for the specified number of PCs
+    centroid <- kmeans_results$centers[cluster, 1:num_pcs]
     
-    # Calculate the centroid of the cluster based on PC scores
-    cluster_center <- colMeans(pc_scores[cluster_indices, , drop = FALSE])
+    # Get the variables belonging to the current cluster
+    cluster_vars <- names(kmeans_results$cluster[kmeans_results$cluster == cluster])
     
-    # Calculate distances from each variable in the cluster to the cluster center
-    distances <- apply(pc_scores[cluster_indices, , drop = FALSE], 1, function(x) sum((x - cluster_center)^2))
+    # Calculate the Euclidean distance between each variable and the centroid
+    distances <- sapply(cluster_vars, function(var) {
+      sqrt(sum((pca_loadings[var, 1:num_pcs] - centroid)^2))
+    })
     
-    # Find the variable with the minimum distance
-    closest_var_index <- cluster_indices[which.min(distances)]
-    closest_var_name <- rownames(pc_scores)[closest_var_index]
+    # Find the variable with the minimum distance to the centroid
+    closest_var <- names(which.min(distances))
     
     # Store the result
-    closest_variables[[paste0("Cluster_", i)]] <- closest_var_name
+    closest_vars[[paste0("Cluster_", cluster)]] <- closest_var
   }
   
-  return(closest_variables)
+  return(closest_vars)
 }
+
+# Example usage:
+# Assuming kmeans_results is your kmeans output and pca_loadings is your PCA loadings matrix
+# kmeans_results <- kmeans(your_data, centers = 8)
+# pca_loadings <- your_pca$rotation[, 1:6] # Assuming you have the first 6 PCs
+
+# closest_vars <- find_closest_to_centroid(kmeans_results, pca_loadings, num_pcs = 4)
+# print(closest_vars)
 ```
 
 ```{r}
-# Run the function 
-closest_vars <- find_closest_to_cluster_center(env_pca_row, env.km)
-
-# Print the results
+closest_vars <- find_closest_to_centroid(env.km, pc_loadings_env, num_pcs = 3)
 print(closest_vars)
 ```
 
 
-Performing PCA on the pH and DO variables 
+Performing PCA on the pH and DO variables
 
 ```{r}
 # Specifying the columns to keep 
@@ -388,16 +389,13 @@ autoplot(pH_pca_t, data = pH_t, shape = FALSE, label = TRUE)
 ```{r}
 # Compute k-means with k = 8
 set.seed(123)
-pHDO.km <- kmeans(scale(pH_DO_t), 4)
+pHDO.km <- kmeans(scale(pH_DO_t), 2)
 # K-means clusters showing the group of each individuals
 pHDO.km$cluster
 ```
 
 ```{r}
-# Run the function 
-closest_vars_pHDO <- find_closest_to_cluster_center(pHDO_pca_t, pHDO.km)
-
-# Print the results
+closest_vars_pHDO <- find_closest_to_centroid(pHDO.km, pHDO_loadings)
 print(closest_vars_pHDO)
 ```
 
@@ -455,39 +453,84 @@ ggplot(cluster_data_temp, aes(x = PC1, y = PC2, color = Cluster)) +
   theme_minimal() +
   labs(title = "K-means Clustering of Temperature Variables")
 ```
+Performing PCA on the salinity variables
 
+```{r}
+# Specifying the columns to keep 
+keep_Sal_Avg <- c("Sal_Avg","May_Sal_Avg", "Jun_Sal_Avg", "Jul_Sal_Avg")
+```
+
+```{r}
+keep_Sal_Min <- c("Sal_Min","May_Sal_Min", "Jun_Sal_Min", "Jul_Sal_Min")
+```
+
+```{r}
+keep_Sal_Max <- c("Sal_Max","May_Sal_Max", "Jun_Sal_Max", "Jul_Sal_Max")
+```
+
+```{r}
+# Specifying the columns to keep 
+keep_Sal <- c("Sal_Avg","May_Sal_Avg", "Jun_Sal_Avg", "Jul_Sal_Avg","Sal_Min","May_Sal_Min", "Jun_Sal_Min", "Jul_Sal_Min","Sal_Max","May_Sal_Max", "Jun_Sal_Max", "Jul_Sal_Max")
+```
+
+
+```{r}
+Sal_Avg_env <- env_data_pop[keep_Sal_Avg]
+Sal_Avg_env_t <- t(Sal_Avg_env)
+
+Sal_Min_env <- env_data_pop[keep_Sal_Min]
+Sal_Min_env_t <- t(Sal_Min_env)
+
+Sal_Max_env <- env_data_pop[keep_Sal_Max]
+Sal_Max_env_t <- t(Sal_Max_env)
+```
+
+```{r}
+Sal_env <- env_data_pop[keep_Sal]
+Sal_env_t <- t(Sal_env)
+```
+
+```{r}
+# Running PCA on transposed Sal datasets
+Sal_Avg_pca_t <- prcomp(Sal_Avg_env_t, scale = TRUE)
+Sal_Min_pca_t <- prcomp(Sal_Min_env_t, scale = TRUE)
+Sal_Max_pca_t <- prcomp(Sal_Max_env_t, scale = TRUE)
+```
+
+```{r}
+Sal_pca_t <- prcomp(Sal_env_t, scale = TRUE)
+```
+
+```{r}
+# Plotting PCA of transposed data 
+autoplot(Sal_Avg_pca_t, data = Sal_Avg_env_t, shape = FALSE, label = TRUE)
+autoplot(Sal_Min_pca_t, data = Sal_Min_env_t, shape = FALSE, label = TRUE)
+autoplot(Sal_Max_pca_t, data = Sal_Max_env_t, shape = FALSE, label = TRUE)
+```
+
+```{r}
+autoplot(Sal_pca_t, data = Sal_env_t, shape = FALSE, label = TRUE)
+```
 
 Based on PCA analysis and kmeans clustering of the environmental variables, I'm going to create a reduced environmental dataset that includes Sewage Effluent (not collinear), T_Min, Jun_Sal_Max, T_Max, Jul_T_Min, Jul_T_Avg, Jun_Sal_Avg, Jun_Sal_Min,  pH_Avg, Jun_DO_Avg, and scores for PCs 1-3. 
 
 ```{r}
 # Saving these variables to a keep variable
-env_data_pca_9var_tokeep <- c("Individual", "Population", "Latitude", "Longitude", "SewageEffluent","May_Temp_Min","June_Salinity_Max","Temp_Max", "July_Temp_Min", "July_Temp_Avg","June_Salinity_Avg","June_Salinity_Min","pH_Avg")
+env_data_pca_reduced_tokeep <- c("Individual", "Population", "Latitude", "Longitude", "SewageEffluent","Temp_Min","June_Salinity_Max","Temp_Max", "July_Temp_Min", "July_Temp_Avg","June_Salinity_Avg","June_Salinity_Min","pH_Avg","June_DO_Avg")
 ```
 
 ```{r}
 # saving env dataset with just variables from keep list 
-env_data_9var <- strata6_full[env_data_pca_9var_tokeep]
-```
-
-The strata file includes all individuals per population. Right now, the PC scores are saved as one value per population, so I need to duplicate each population's PC score 10 times (10 individuals per pop) before I can bind it with the environmental strata info.  
-
-```{r}
-env_pc_scores_strata <- pc_scores_3 %>%
-  slice(rep(1:n(), each = 10)) %>%
-  mutate(duplicate_id = rep(1:10, times = nrow(pc_scores_3))
+env_data_pca_reduced <- strata6_full[env_data_pca_reduced_tokeep]
 ```
 
 ```{r}
-pc_scores_strata <- env_pc_scores_strata[,1:3]
-rownames(pc_scores_strata) <- NULL
+write.table(env_data_pca_reduced, "/home/azyck/NB_capture_both/NB_ddhaplo/NB_ddhaplo_working/NB_OutlierDetection_working/env_data_pca_reduced", sep="\t", quote=F, row.names=F)
 ```
+
+I copied the PC scores and duplicated each value x10 so that it can merge with the strata file 
 
 ```{r}
-# Merging the reduced env dataset with the pc scores
-env_data_12var <- cbind(env_data_9var, pc_scores_strata)
+env_pc_scores <- read.table("./env_data_PC_scores", header=TRUE)
+ 
 ```
-
-```{r}
-write.table(env_data_12var, "/home/azyck/NB_capture_both/NB_ddhaplo/NB_ddhaplo_working/NB_PopSeaGen_Analysis_working/strata6_red_12var", sep="\t", quote=F, row.names=F)
-```
-

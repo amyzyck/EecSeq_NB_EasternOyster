@@ -41,7 +41,7 @@ In R:
 library(pcadapt)
 ```
 
-```{r}
+```{r,echo=TRUE, results='hide',message=FALSE,warning=FALSE}
 # Convert VCF file to pcadapt format
 
 vcf2pcadapt("SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf", output = "tmp.pcadapt", allele.sep = c("/", "|"))
@@ -73,7 +73,7 @@ poplist.names6 <- c(rep("BAR", 10),rep("BIS", 10),rep("GB", 10), rep("KIC", 10),
 ```{r}
 # Score Plot
 # Plot the first two PCs
-plot(x6, option = "scores", pop = poplist.names6)
+plot(x6, option = "scores", pop = poplist.names6, col = c("#7FC97F","#00008B","#FF7F00","#9A32CD","#FF1493","#00FFFF"))
 ```
 
 ```{r}
@@ -82,11 +82,76 @@ plot(x6, option = "scores", i = 3, j = 4, pop = poplist.names6)
 ```
 
 ```{r}
+# Calculate the proportion of variance explained
+eigenvalues6 <- x6$singular.values^2
+```
+
+```{r}
+eig_percent_all_6 <- round((eigenvalues6 / (sum(eigenvalues6))) * 100, 2)
+```
+
+```{r}
+plot(x6)
+```
+
+```{r}
 #evaluating LD in dataset - looking to see if loading are clustered in certain genomic regions (following https://bcm-uga.github.io/pcadapt/articles/pcadapt.html#f--linkage-disequilibrium-ld-thinning)
 par(mfrow = c(2, 2))
 for (i in 1:4)
   plot(x6$loadings[, i], pch = 19, cex = .3, ylab = paste0("Loadings PC", i))
 ```
+
+Before performing LD thinning, I want to explore the SNPs that fall around the 5000 index marker. Looking at the Manhattan plot, we can see SNPs with low p-values between indices 15,000 and 20,000. These correspond to inversions on chromosomes 5 and 6. However, there is another cluster of SNPs with low p-values around index 5000. I want to check the chromosome and position of these SNPs to see if they are tied to another structural variant. 
+
+```{r}
+qval_notthin <- qvalue(x6$pvalues)$qvalues
+alpha6 <- 0.1 # expected false discovery rate lower than 1% - raised from 0.05
+```
+
+#### Save Outliers
+
+```{r}
+outliers_notthin <- which(qval_notthin < alpha6)
+outliers_notthin
+```
+
+```{r}
+# Save outliers to .txt file 
+invisible(lapply(outliers_notthin, write, "outliers_pcadapt_notthinned.txt", append=TRUE))
+```
+
+In terminal:
+
+Taking the SNP indices and applying chromosome and position info:
+
+```
+$ cat  outliers_pcadapt_notthinned.txt | parallel "grep -w ^{} loci_6p9g9.plus.index" | cut -f2,3> outlier_pcadapt_notthinned.loci.txt
+```
+
+Based on the list of outliers above, SNPs around index 5000 are approximately in rows 166-218. I can search for these rows in the loci txt file to identify their chromosome and position.
+
+```
+$ sed -n '166,218p' outlier_pcadapt_notthinned.loci.txt
+```
+
+This will print out all the info in these rows. Here's a glimpse: 
+
+```
+NC_035781.1	33629056
+NC_035781.1	33629101
+NC_035781.1	33629181
+NC_035781.1	33629189
+NC_035781.1	33629194
+NC_035781.1	33629226
+NC_035781.1	33629243
+NC_035781.1	33629249
+NC_035781.1	33629255
+```
+
+The SNPs around index 5000 fall on chromosome 2. 
+
+
+Back in R for LD thinning.
 
 Top left, PC1, is determined by one (maybe 2) genomic regions, also likely still an inversion. To minimize outlier detection based on LD, I can apply LD thinning. I'm going to use the default values for window size and r2 threshold for pcadapt (size = 500, thr = 0.1).
 
@@ -350,13 +415,13 @@ In R:
 ### Plotting outliers
 
 ```{r}
-source("plot_R.r")
-plot_bayescan("SNP6p9g9_fst.txt")
+source("BayeScan/plot_R.r")
+plot_bayescan("BayeScan/SNP6p9g9_fst.txt")
 ```
 
 ```{r}
 # Identifying outliers using a False discovery rate of 10%.
-bs6p9g9 <- plot_bayescan("SNP6p9g9_fst.txt", FDR = 0.10)
+bs6p9g9 <- plot_bayescan("BayeScan/SNP6p9g9_fst.txt", FDR = 0.10)
 ```
 
 ```{r}
@@ -364,8 +429,6 @@ bs6p9g9$outliers
 ```
 
 No outliers detected
-
-
 
 
 ## 4. LFMM2
@@ -401,10 +464,10 @@ I also have a vcf file with SNPs inside known inversion removed. I want to run L
 
     $ sed 's/-1/9/g' snp6p9g9_noinvert.012 | cut -f2- > snp6p9g9_noinvert.lfmm
 
-```{r}
+```{r,echo=TRUE, results='hide',message=FALSE,warning=FALSE}
 # run snmf to estimate K, considering K from 1-6:
 project_6p9g9 = NULL
-project_6p9g9 = snmf("snp6p9g9.lfmm", K = 1:10, entropy = TRUE, repetitions = 10, project = "new")
+project_6p9g9 = snmf("LFMM2/snp6p9g9.lfmm", K = 1:10, entropy = TRUE, repetitions = 10, project = "new")
 #pdf("sNMF_6p9g9.pdf")
 plot(project_6p9g9, col = "blue", pch = 19, cex = 1.2)
 #dev.off()
@@ -421,9 +484,9 @@ axis(1, at = 1:length(bp_6p9g9$order), labels = bp_6p9g9$order, las=1, cex.axis 
 #dev.off()
 ```
 
-```{r}
+```{r,echo=TRUE, results='hide',message=FALSE,warning=FALSE}
 #imputing any missing data
-project.missing_6p9g9 = snmf("snp6p9g9.lfmm", K = 1,
+project.missing_6p9g9 = snmf("LFMM2/snp6p9g9.lfmm", K = 1,
         entropy = TRUE, repetitions = 10,
         project = "new")
 ```
@@ -432,22 +495,22 @@ project.missing_6p9g9 = snmf("snp6p9g9.lfmm", K = 1,
 # select the run with the lowest cross-entropy value
 best_6p9g9 = which.min(cross.entropy(project.missing_6p9g9, K = 1))
 # Impute the missing genotypes
-impute(project.missing_6p9g9, "snp6p9g9.lfmm",
+impute(project.missing_6p9g9, "LFMM2/snp6p9g9.lfmm",
        method = 'random', K = 1, run = best_6p9g9)
 ## Missing genotype imputation for K = 1
 ## Missing genotype imputation for run = 6
 ## Results are written in the file:  snp_.lfmm_imputed.lfmm
 # Proportion of correct imputation results
-dat.imp_6p9g9 = read.lfmm("snp6p9g9.lfmm_imputed.lfmm")
+dat.imp_6p9g9 = read.lfmm("LFMM2/snp6p9g9.lfmm_imputed.lfmm")
 #mean( tutorial.R[dat == 9] == dat.imp[dat == 9] )
 ```
 
 Repeating with no invert dataset
 
-```{r}
+```{r,echo=TRUE, results='hide',message=FALSE,warning=FALSE}
 # run snmf to estimate K, considering K from 1-6:
 project_noinvert_6p9g9 = NULL
-project_noinvert_6p9g9 = snmf("snp6p9g9_noinvert.lfmm", K = 1:10, entropy = TRUE, repetitions = 10, project = "new")
+project_noinvert_6p9g9 = snmf("LFMM2/snp6p9g9_noinvert.lfmm", K = 1:10, entropy = TRUE, repetitions = 10, project = "new")
 #pdf("sNMF_noinvert_6p9g9.pdf")
 plot(project_noinvert_6p9g9, col = "blue", pch = 19, cex = 1.2)
 #dev.off()
@@ -464,9 +527,9 @@ axis(1, at = 1:length(bp_noinvert_6p9g9$order), labels = bp_noinvert_6p9g9$order
 #dev.off()
 ```
 
-```{r}
+```{r,echo=TRUE, results='hide',message=FALSE,warning=FALSE}
 #imputing any missing data
-project.missing_noinvert_6p9g9 = snmf("snp6p9g9_noinvert.lfmm", K = 1,
+project.missing_noinvert_6p9g9 = snmf("LFMM2/snp6p9g9_noinvert.lfmm", K = 1,
         entropy = TRUE, repetitions = 10,
         project = "new")
 ```
@@ -475,36 +538,36 @@ project.missing_noinvert_6p9g9 = snmf("snp6p9g9_noinvert.lfmm", K = 1,
 # select the run with the lowest cross-entropy value
 best_noinvert_6p9g9 = which.min(cross.entropy(project.missing_noinvert_6p9g9, K = 1))
 # Impute the missing genotypes
-impute(project.missing_noinvert_6p9g9, "snp6p9g9_noinvert.lfmm",
+impute(project.missing_noinvert_6p9g9, "LFMM2/snp6p9g9_noinvert.lfmm",
        method = 'mode', K = 1, run = best_noinvert_6p9g9)
 ## Missing genotype imputation for K = 1
 ## Missing genotype imputation for run = 6
 ## Results are written in the file:  snp_.lfmm_imputed.lfmm
 # Proportion of correct imputation results
-dat.imp_noinvert_6p9g9 = read.lfmm("snp6p9g9_noinvert.lfmm_imputed.lfmm")
+dat.imp_noinvert_6p9g9 = read.lfmm("LFMM2/snp6p9g9_noinvert.lfmm_imputed.lfmm")
 #mean( tutorial.R[dat == 9] == dat.imp[dat == 9] )
 ```
 
 ```{r}
 # Prepping the environmental data
 
-clim.env_6pops_pca_red <- read.table("./env_data_pca_reduced", header=TRUE)
+clim.env_6pops_red <- read.table("./strata6_red_12var", header=TRUE)
 
-clim.env_6pops_pca_red <- clim.env_6pops_pca_red[,5:17]
+clim.env_6pops_red <- clim.env_6pops_red[,5:17]
 
-colnames(clim.env_6pops_pca_red) <- NULL
-row.names(clim.env_6pops_pca_red) <- NULL
+colnames(clim.env_6pops_red) <- NULL
+row.names(clim.env_6pops_red) <- NULL
 
-clim.env_6pops_pca_red
+clim.env_6pops_red
 
-write.table(clim.env_6pops_pca_red, "/home/azyck/NB_capture_both/NB_ddhaplo/NB_ddhaplo_working/NB_OutlierDetection_working/clim.env_6pops_pca_red.env", sep="\t", quote=F, row.names=F)
+write.table(clim.env_6pops_red, "/home/azyck/NB_capture_both/NB_ddhaplo/NB_ddhaplo_working/NB_OutlierDetection_working/clim.env_6pops_red_12var.env", sep="\t", quote=F, row.names=F)
 ```
 
 ```{r}
 # Prepping a second env file for downstream processing of LFMM output
-clim.env_6pops_pca_red_full <- read.table("./env_data_pca_reduced", header=TRUE)
+clim.env_6pops_red_full <- read.table("./strata6_red_12var", header=TRUE)
 
-env_6pops_pca_red <- clim.env_6pops_pca_red_full[,5:17]
+env_6pops_red <- clim.env_6pops_red_full[,5:17]
 ```
 
 ### LFMM ridge
@@ -528,14 +591,14 @@ library(vegan)    # Used to run PCA & RDA
 library(lfmm)     # Used to run LFMM
 library(qvalue)   # Used to post-process LFMM output
 library(vcfR)
-library(stringr)
+#library(stringr)
 ```
 
 ### Import the genetic data
 
 ```{r}
 # to make it tab separated - sed 's/ \+/\t/g' snp6p9g9.lfmm_imputed.lfmm  > snp6p9g9.lfmm_imputed_tab.lfmm
-gen6p9g9<-read.delim("snp6p9g9.lfmm_imputed_tab.lfmm",header = FALSE)
+gen6p9g9<-read.delim("LFMM2/snp6p9g9.lfmm_imputed_tab.lfmm",header = FALSE)
 row.names(gen6p9g9) <- c("BAR_10","BAR_1","BAR_2","BAR_3","BAR_4","BAR_5","BAR_6","BAR_7","BAR_8","BAR_9","BIS_10","BIS_1","BIS_2","BIS_3","BIS_4","BIS_5","BIS_6","BIS_7","BIS_8","BIS_9","GB_10","GB_1","GB_2","GB_3","GB_4","GB_5","GB_6","GB_7","GB_8","GB_9","KIC_10","KIC_1","KIC_2","KIC_3","KIC_4","KIC_5","KIC_6","KIC_7","KIC_8","KIC_9","MCD_10","MCD_1","MCD_2","MCD_3","MCD_4","MCD_5","MCD_6","MCD_7","MCD_8","MCD_9","PVD_10","PVD_1","PVD_2","PVD_3","PVD_4","PVD_5","PVD_6","PVD_7","PVD_8","PVD_9") # Adding individual names to rows of matrix
 dim(gen6p9g9)
 ```
@@ -550,7 +613,7 @@ Repeat for no_invert dataset
 
 ```{r}
 # to make it tab separated - sed 's/ \+/\t/g' snp6p9g9_noinvert.lfmm_imputed.lfmm  > snp6p9g9_noinvert.lfmm_imputed_tab.lfmm
-gen_noinvert_6p9g9<-read.delim("snp6p9g9_noinvert.lfmm_imputed_tab.lfmm",header = FALSE)
+gen_noinvert_6p9g9<-read.delim("LFMM2/snp6p9g9_noinvert.lfmm_imputed_tab.lfmm",header = FALSE)
 row.names(gen_noinvert_6p9g9) <- c("BAR_10","BAR_1","BAR_2","BAR_3","BAR_4","BAR_5","BAR_6","BAR_7","BAR_8","BAR_9","BIS_10","BIS_1","BIS_2","BIS_3","BIS_4","BIS_5","BIS_6","BIS_7","BIS_8","BIS_9","GB_10","GB_1","GB_2","GB_3","GB_4","GB_5","GB_6","GB_7","GB_8","GB_9","KIC_10","KIC_1","KIC_2","KIC_3","KIC_4","KIC_5","KIC_6","KIC_7","KIC_8","KIC_9","MCD_10","MCD_1","MCD_2","MCD_3","MCD_4","MCD_5","MCD_6","MCD_7","MCD_8","MCD_9","PVD_10","PVD_1","PVD_2","PVD_3","PVD_4","PVD_5","PVD_6","PVD_7","PVD_8","PVD_9") # Adding individual names to rows of matrix
 dim(gen_noinvert_6p9g9)
 ```
@@ -562,15 +625,15 @@ sum(is.na(gen_noinvert_6p9g9))
 ```
 
 ```{r}
-env6p9g9_red.lfmm <- clim.env_6pops_pca_red_full
+env6p9g9_red.lfmm <- clim.env_6pops_red_full
 env6p9g9_red.lfmm$Individual <- c("BAR_10","BAR_1","BAR_2","BAR_3","BAR_4","BAR_5","BAR_6","BAR_7","BAR_8","BAR_9","BIS_10","BIS_1","BIS_2","BIS_3","BIS_4","BIS_5","BIS_6","BIS_7","BIS_8","BIS_9","GB_10","GB_1","GB_2","GB_3","GB_4","GB_5","GB_6","GB_7","GB_8","GB_9","KIC_10","KIC_1","KIC_2","KIC_3","KIC_4","KIC_5","KIC_6","KIC_7","KIC_8","KIC_9","MCD_10","MCD_1","MCD_2","MCD_3","MCD_4","MCD_5","MCD_6","MCD_7","MCD_8","MCD_9","PVD_10","PVD_1","PVD_2","PVD_3","PVD_4","PVD_5","PVD_6","PVD_7","PVD_8","PVD_9")
 str(env6p9g9_red.lfmm)
 ```
 
 ```{r}
 #subsetting the environmental dataset to just include the environmental variables
-pred6p9g9_red <- env_6pops_pca_red
-pred6p9g9_red_noPCs <- env_6pops_pca_red[,1:10]
+pred6p9g9_red <- env_6pops_red
+pred6p9g9_red_noPCs <- env_6pops_red[,1:10]
 ```
 
 ```{r}
@@ -593,7 +656,7 @@ screeplot(pred6p9g9_red.pca, main = "Screeplot: Eigenvalues of Oyster Predictor 
 round(scores(pred6p9g9_red.pca, choices=1:5, display="species", scaling=0), digits=3)
 ```
 
-PC1 explains 51% of the variation, PC2 explains 24% and PC3 explains 13%. The strongest correlations with PC1 are Temp_Min, June_Salinity_Max and Temp_Max
+PC1 explains 51% of the variation, PC2 explains 24% and PC3 explains 13%. The strongest correlations with PC1 are Temp_Min, June_Salinity_Max and June_Salinity_Min
 
 I could store the synthetic PC axis predictor as pred.PC1 and do the same for PC2 and PC3 as well. There's an option to run LFMM using these PC scores as the predictors. I can also run LFMM on each individual environmental predictor. I'm going to opt for the latter as I'd like to see which predictors are associated with outlier SNPs. I've also already saved the PC 1-3 scores for the full environmetnal dataset. The next section will be very repetitive as I'm going to repeat the set of code for each predictor.
 
@@ -602,6 +665,8 @@ I could store the synthetic PC axis predictor as pred.PC1 and do the same for PC
 
 # Sewage Effluent 
 SE <- pred6p9g9_red$SewageEffluent
+# Sewage Effluent updated
+SE_new <- pred6p9g9_red$SewageEffluent_new
 # Min Temp
 Min_T <- pred6p9g9_red$Temp_Min
 # Max June Salinity
@@ -618,8 +683,6 @@ Avg_Sal_Jun <- pred6p9g9_red$June_Salinity_Avg
 Min_Sal_Jun <- pred6p9g9_red$June_Salinity_Min
 # Avg pH
 Avg_pH <- pred6p9g9_red$pH_Avg
-# DO Avg June
-Avg_DO_Jun <- pred6p9g9_red$June_DO_Avg
 # PC1
 PC1 <- pred6p9g9_red$PC1
 # PC2
@@ -637,7 +700,7 @@ PC3 <- pred6p9g9_red$PC3
 screeplot(pred6p9g9_red.pca, main = "Screeplot of Oyster Predictor Variables with Broken Stick", bstick=TRUE, type="barplot")
 ```
 
-PC1 explains more than the random broken stick components, while PC2 + do not. If this were genomic data, and we were determining a value of K using this approach, we'd set K = 1.
+PC1 and PC2 explains more than the random broken stick components, while PC3 + do not. If this were genomic data, and we were determining a value of K using this approach, we'd set K = 3.
 
 ```{r}
 # Now looking at the genetic data
@@ -723,6 +786,66 @@ oys6p9g9_red_SE.FDR.1 <- which(oys6p9g9_red_SE.qv < 0.1) ## identify which SNPs 
 oys6p9g9_red_SE.FDR.1
 ```
 
+**Sewage Effluent updated**
+
+```{r}
+oys6p9g9_red_SE_new.lfmm <- lfmm_ridge(Y=gen6p9g9, X=SE_new, K=K) ## change K as you see fit
+```
+
+```{r}
+#calculating test statistics for the predictor
+oys6p9g9_red_SE_new.pv <- lfmm_test(Y=gen6p9g9, X=SE_new, lfmm=oys6p9g9_red_SE_new.lfmm, calibrate="gif")
+
+names(oys6p9g9_red_SE_new.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
+```
+
+```{r}
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.09, which I'm happy with.
+oys6p9g9_red_SE_new.pv$gif
+```
+
+An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
+
+```{r}
+# look at how application of the GIF to the p-values impacts the p-value distribution:
+hist(oys6p9g9_red_SE_new.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_SE_new.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
+```
+
+There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
+
+```{r}
+# Let's change the GIF and readjust the p-values:
+zscore_6p9g9_red_SE_new <- oys6p9g9_red_SE_new.pv$score[,1]   # zscores for first predictor, we only have one in our case...
+(gif_6p9g9_red_SE_new <- oys6p9g9_red_SE_new.pv$gif[1])       ## d.fault GIF for this predictor
+```
+
+```{r}
+new.gif <- 1.00             ## choose your new GIF
+
+# Manual adjustment of the p-values:
+adj.pv6p9g9_red_SE_new <- pchisq(zscore_6p9g9_red_SE_new^2/new.gif, df=1, lower = FALSE)
+```
+
+```{r}
+# plot the p-value histograms with the new gif
+hist(oys6p9g9_red_SE_new.pv$pvalue[,1], main="Unadjusted p-values")        
+hist(oys6p9g9_red_SE_new.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.09)")
+hist(adj.pv6p9g9_red_SE_new, main="REadjusted p-values (GIF=1.00)")
+```
+
+```{r}
+#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
+# then an FDR threshold can be used to control the number of false positive detections
+oys6p9g9_red_SE_new.qv <- qvalue(oys6p9g9_red_SE_new.pv$calibrated.pvalue)$qvalues
+length(which(oys6p9g9_red_SE_new.qv < 0.1)) ## how many SNPs have an FDR < 10%?
+```
+
+```{r}
+oys6p9g9_red_SE_new.FDR.1 <- which(oys6p9g9_red_SE_new.qv < 0.1) ## identify which SNPs these are
+oys6p9g9_red_SE_new.FDR.1
+```
+
 **Temp Min**
 
 ```{r}
@@ -786,6 +909,7 @@ oys6p9g9_red_Min_T.FDR.1
 ```{r}
 invisible(lapply(oys6p9g9_red_Min_T.FDR.1, write, "outliers_lfmm2_6p9g9_red_Min_T.txt", append=TRUE))
 ```
+
 
 **June Salinity Max**
 
@@ -1024,7 +1148,7 @@ adj.pv6p9g9_red_Avg_T_Jul <- pchisq(zscore_6p9g9_red_Avg_T_Jul^2/new.gif, df=1, 
 # plot the p-value histograms with the new gif
 hist(oys6p9g9_red_Avg_T_Jul.pv$pvalue[,1], main="Unadjusted p-values")        
 hist(oys6p9g9_red_Avg_T_Jul.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.13)")
-hist(adj.pv6p9g9_red_Avg_T_Jul, main="REadjusted p-values (GIF=1.07)")
+hist(adj.pv6p9g9_red_Avg_T_Jul, main="REadjusted p-values (GIF=1.00)")
 ```
 
 ```{r}
@@ -1235,66 +1359,6 @@ oys6p9g9_red_Avg_pH.FDR.1
 invisible(lapply(oys6p9g9_red_Avg_pH.FDR.1, write, "outliers_lfmm2_6p9g9_red_Avg_pH.txt", append=TRUE))
 ```
 
-**June DO Avg**
-
-```{r}
-oys6p9g9_red_Avg_DO_Jun.lfmm <- lfmm_ridge(Y=gen6p9g9, X=Avg_DO_Jun, K=K) ## change K as you see fit
-```
-
-```{r}
-#calculating test statistics for the predictor
-oys6p9g9_red_Avg_DO_Jun.pv <- lfmm_test(Y=gen6p9g9, X=Avg_DO_Jun, lfmm=oys6p9g9_red_Avg_DO_Jun.lfmm, calibrate="gif")
-
-names(oys6p9g9_red_Avg_DO_Jun.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
-```
-
-```{r}
-#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.12, which I'm happy with.
-oys6p9g9_red_Avg_DO_Jun.pv$gif
-```
-
-An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
-
-```{r}
-# look at how application of the GIF to the p-values impacts the p-value distribution:
-hist(oys6p9g9_red_Avg_DO_Jun.pv$pvalue[,1], main="Unadjusted p-values")        
-hist(oys6p9g9_red_Avg_DO_Jun.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
-```
-
-There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
-
-```{r}
-# Let's change the GIF and readjust the p-values:
-zscore_6p9g9_red_Avg_DO_Jun <- oys6p9g9_red_Avg_DO_Jun.pv$score[,1]   # zscores for first predictor, we only have one in our case...
-(gif_6p9g9_red_Avg_DO_Jun <- oys6p9g9_red_Avg_DO_Jun.pv$gif[1])       ## d.fault GIF for this predictor
-```
-
-```{r}
-new.gif <- 1.00             ## choose your new GIF
-
-# Manual adjustment of the p-values:
-adj.pv6p9g9_red_Avg_DO_Jun <- pchisq(zscore_6p9g9_red_Avg_DO_Jun^2/new.gif, df=1, lower = FALSE)
-```
-
-```{r}
-# plot the p-value histograms with the new gif
-hist(oys6p9g9_red_Avg_DO_Jun.pv$pvalue[,1], main="Unadjusted p-values")        
-hist(oys6p9g9_red_Avg_DO_Jun.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.12)")
-hist(adj.pv6p9g9_red_Avg_DO_Jun, main="REadjusted p-values (GIF=1.00)")
-```
-
-```{r}
-#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
-# then an FDR threshold can be used to control the number of false positive detections
-oys6p9g9_red_Avg_DO_Jun.qv <- qvalue(oys6p9g9_red_Avg_DO_Jun.pv$calibrated.pvalue)$qvalues
-length(which(oys6p9g9_red_Avg_DO_Jun.qv < 0.1)) ## how many SNPs have an FDR < 10%?
-```
-
-```{r}
-oys6p9g9_red_Avg_DO_Jun.FDR.1 <- which(oys6p9g9_red_Avg_DO_Jun.qv < 0.1) ## identify which SNPs these are
-oys6p9g9_red_Avg_DO_Jun.FDR.1
-```
-
 **PC1**
 
 ```{r}
@@ -1373,7 +1437,7 @@ names(oys6p9g9_red_PC2.pv) # this object includes raw z-scores and p-values, as 
 ```
 
 ```{r}
-#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.05, which I'm happy with.
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.06, which I'm happy with.
 oys6p9g9_red_PC2.pv$gif
 ```
 
@@ -1403,7 +1467,7 @@ adj.pv6p9g9_red_PC2 <- pchisq(zscore_6p9g9_red_PC2^2/new.gif, df=1, lower = FALS
 ```{r}
 # plot the p-value histograms with the new gif
 hist(oys6p9g9_red_PC2.pv$pvalue[,1], main="Unadjusted p-values")        
-hist(oys6p9g9_red_PC2.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.05)")
+hist(oys6p9g9_red_PC2.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.06)")
 hist(adj.pv6p9g9_red_PC2, main="REadjusted p-values (GIF=1.00)")
 ```
 
@@ -1437,7 +1501,7 @@ names(oys6p9g9_red_PC3.pv) # this object includes raw z-scores and p-values, as 
 ```
 
 ```{r}
-#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.02, which I'm happy with.
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.03, which I'm happy with.
 oys6p9g9_red_PC3.pv$gif
 ```
 
@@ -1565,7 +1629,7 @@ names(oys_noinvert_6p9g9_red_Min_T.pv) # this object includes raw z-scores and p
 ```
 
 ```{r}
-#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.08.
+#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.10.
 oys_noinvert_6p9g9_red_Min_T.pv$gif
 ```
 
@@ -1595,7 +1659,7 @@ adj.pv_noinvert_6p9g9_red_Min_T <- pchisq(zscore__noinvert_6p9g9_red_Min_T^2/new
 ```{r}
 # plot the p-value histograms with the new gif
 hist(oys_noinvert_6p9g9_red_Min_T.pv$pvalue[,1], main="Unadjusted p-values")        
-hist(oys_noinvert_6p9g9_red_Min_T.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.08)")
+hist(oys_noinvert_6p9g9_red_Min_T.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.10)")
 hist(adj.pv_noinvert_6p9g9_red_Min_T, main="REadjusted p-values (GIF=1.00)")
 ```
 
@@ -2063,66 +2127,6 @@ oys_noinvert_6p9g9_red_Avg_pH.FDR.1
 # invisible(lapply(oys_noinvert_6p9g9_red_Avg_pH.FDR.1, write, "outliers_lfmm2_noinvert_6p9g9_red_Avg_pH.txt", append=TRUE))
 ```
 
-**June DO Avg**
-
-```{r}
-oys_noinvert_6p9g9_red_Avg_DO_Jun.lfmm <- lfmm_ridge(Y=gen_noinvert_6p9g9, X=Avg_DO_Jun, K=K) ## change K as you see fit
-```
-
-```{r}
-#calculating test statistics for the predictor
-oys_noinvert_6p9g9_red_Avg_DO_Jun.pv <- lfmm_test(Y=gen_noinvert_6p9g9, X=Avg_DO_Jun, lfmm=oys_noinvert_6p9g9_red_Avg_DO_Jun.lfmm, calibrate="gif")
-
-names(oys_noinvert_6p9g9_red_Avg_DO_Jun.pv) # this object includes raw z-scores and p-values, as well as GIF-calibrated scores and p-values
-```
-
-```{r}
-#Looking at the genomic inflation factor (GIF) - a value around 1 means the test(s) is appropriately calibrated. Here it is 1.10, which I'm happy with.
-oys_noinvert_6p9g9_red_Avg_DO_Jun.pv$gif
-```
-
-An appropriately calibrated set of tests will have a GIF of around 1. The elevated GIF for our tests indicates that the results may be overly liberal in identifying candidate SNPs. If the GIF is less than one, the test may be too conservative.
-
-```{r}
-# look at how application of the GIF to the p-values impacts the p-value distribution:
-hist(oys_noinvert_6p9g9_red_Avg_DO_Jun.pv$pvalue[,1], main="Unadjusted p-values")        
-hist(oys_noinvert_6p9g9_red_Avg_DO_Jun.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values")
-```
-
-There should be a relatively flat histogram (most loci not under selection) with a peak near zero, indicative of candidate adaptive markers. The peak around 0 is more apparent in the unadjusted p-value histogram.
-
-```{r}
-# Let's change the GIF and readjust the p-values:
-zscore__noinvert_6p9g9_red_Avg_DO_Jun <- oys_noinvert_6p9g9_red_Avg_DO_Jun.pv$score[,1]   # zscores for first predictor, we only have one in our case...
-(gif__noinvert_6p9g9_red_Avg_DO_Jun <- oys_noinvert_6p9g9_red_Avg_DO_Jun.pv$gif[1])       ## d.fault GIF for this predictor
-```
-
-```{r}
-new.gif <- 1.00             ## choose your new GIF
-
-# Manual adjustment of the p-values:
-adj.pv_noinvert_6p9g9_red_Avg_DO_Jun <- pchisq(zscore__noinvert_6p9g9_red_Avg_DO_Jun^2/new.gif, df=1, lower = FALSE)
-```
-
-```{r}
-# plot the p-value histograms with the new gif
-hist(oys_noinvert_6p9g9_red_Avg_DO_Jun.pv$pvalue[,1], main="Unadjusted p-values")        
-hist(oys_noinvert_6p9g9_red_Avg_DO_Jun.pv$calibrated.pvalue[,1], main="GIF-adjusted p-values (GIF=1.10)")
-hist(adj.pv_noinvert_6p9g9_red_Avg_DO_Jun, main="REadjusted p-values (GIF=1.00)")
-```
-
-```{r}
-#convert adjusted p-values to q values - q-values provide a measure of each SNP’s significance, automatically taking into account the fact that thousands are simultaneously being tested
-# then an FDR threshold can be used to control the number of false positive detections
-oys_noinvert_6p9g9_red_Avg_DO_Jun.qv <- qvalue(oys_noinvert_6p9g9_red_Avg_DO_Jun.pv$calibrated.pvalue)$qvalues
-length(which(oys_noinvert_6p9g9_red_Avg_DO_Jun.qv < 0.1)) ## how many SNPs have an FDR < 10%?
-```
-
-```{r}
-oys_noinvert_6p9g9_red_Avg_DO_Jun.FDR.1 <- which(oys_noinvert_6p9g9_red_Avg_DO_Jun.qv < 0.1) ## identify which SNPs these are
-oys_noinvert_6p9g9_red_Avg_DO_Jun.FDR.1
-```
-
 **PC1**
 
 ```{r}
@@ -2384,7 +2388,7 @@ $ cat red_combined_unique_outliers_lfmm2_6p9g9.txt | parallel "grep -w ^{} loci_
 $ cat outlier_lfmm2_6p9g9_red.loci.txt
 
     output:
-    NC_035783.1 10105379
+    NC_035783.1 10105379 
     NC_035783.1 35005081
     NC_035783.1 42294461
     NC_035780.1 24512990
@@ -2396,7 +2400,7 @@ $ cat outlier_lfmm2_6p9g9_red.loci.txt
     NC_035785.1 41726211 #inside inversion
     NC_035786.1 15925374
     NC_035787.1 34532963
-    NC_035781.1 31586020
+    NC_035781.1 31586020 
     NC_035781.1 49023293
 ```
 
@@ -2433,8 +2437,8 @@ All 8 SNPs are shared with the full SNP data set. Of the 6 from the full dataset
 To make this easier:
 
 ```
-$ cat outlier_pcadapt_thinned500.loci.txt outlier_lfmm2_6p9g9_red.loci.txt  > all_6p9g9_red.outliers
-$ cat all_6p9g9_red.outliers | sort | uniq | wc -l
+$ cat outlier_pcadapt_thinned500.loci.txt outlier_lfmm2_6p9g9_red.loci.txt > all.outliers
+$ cat all.outliers | sort | uniq | wc -l
 
     output:
     70
@@ -2442,78 +2446,80 @@ $ cat all_6p9g9_red.outliers | sort | uniq | wc -l
 
 There are two SNPs shared between pcadapt and lfmm2, both are located in inversions: - NC_035784.1 65267874 - NC_035785.1 41726211
 
+There is one SNP shared between lfmm2 and rda, both programs found it was associated with minimum salinity - NC_035783.1	10105379
+
 ## Separating outlier and neutral loci into 2 VCF files
 
 **Create VCF file with just *neutral* loci**
 
 ```
-$ vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --exclude-positions all_6p9g9_red.outliers --recode-INFO-all --out neutralloci6p9g9_red --recode
+$ vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --exclude-positions all.outliers --recode-INFO-all --out neutralloci --recode
 
     output:
     After filtering, kept 60 out of 60 Individuals
     Outputting VCF file...
     After filtering, kept 22804 out of a possible 22874 Sites
-    Run Time = 6.00 seconds
+    Run Time = 4.00 seconds
 ```
 
-*22804 neutral loci in `neutralloci6p9g9_red.recode.vcf`.*
+*22,804 neutral loci in `neutralloci.recode.vcf`.*
 
 I'm going to make a second neutral loci vcf file with large inversion regions removed as they drive the population structure.
 
 ```
-$ vcftools --vcf neutralloci6p9g9_red.recode.vcf --exclude-bed Detected_large_inversions.bed --recode-INFO-all --out neutralloci6p9g9_red_noinversion --recode
+$ vcftools --vcf neutralloci.recode.vcf --exclude-bed Detected_large_inversions.bed --recode-INFO-all --out neutralloci_noinversion --recode
 
     output:
     After filtering, kept 60 out of 60 Individuals
     Outputting VCF file...
         Read 3 BED file entries.
     After filtering, kept 21038 out of a possible 22804 Sites
-    Run Time = 6.00 seconds
+    Run Time = 5.00 seconds
 ```
 
 **Create VCF file with just *outlier* loci**
 
 ```
-$ vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --recode --recode-INFO-all --positions all_6p9g9_red.outliers --out outlierloci6p9g9_red
+$ vcftools --vcf SNP.TRS6newdp10mafp9g9nDNAmaf052A.recode.vcf --recode --recode-INFO-all --positions all.outliers --out outlierloci
 
     output:
     After filtering, kept 60 out of 60 Individuals
     Outputting VCF file...
-    After filtering, kept 70 out of a possible 22874 Sites
+    After filtering, kept 404 out of a possible 22874 Sites
     Run Time = 0.00 seconds
 ```
 
-*70 outlier loci in `outlierloci6p9g9.recode.vcf`.*
+*404 outlier loci in `outlierloci.recode.vcf`.*
 
-I'm also creating a vcf file of outliers including those unique only to pcadapt (56 SNPs). This will be used for a redundancy analysis to identify associations with the distance-based (db) outliers. 56 loci in `outlierloci6p9g9_nolfmm.recode.vcf`.
+I'm also creating a vcf file of outliers only including those identified from pcadapt (58 SNPs). This will be used for a redundancy analysis to identify associations with the distance-based (db) outliers. 58 loci in `outlierloci6p9g9_db.recode.vcf`.
 
 ```
-$ vcftools --vcf outlierloci6p9g9_red.recode.vcf --recode --recode-INFO-all --exclude-positions outlier_lfmm2_6p9g9_red.loci.txt --out outlierloci6p9g9_uniq_db
+$ vcftools --vcf outlierloci.recode.vcf --recode --recode-INFO-all --positions outlier_pcadapt_thinned500.loci.txt --out outlierloci6p9g9_db
 
     output:
     After filtering, kept 60 out of 60 Individuals
     Outputting VCF file...
-    After filtering, kept 56 out of a possible 70 Sites
+    After filtering, kept 58 out of a possible 70 Sites
     Run Time = 0.00 seconds
 ```
 
-*56 loci in `outlierloci6p9g9_uniq_db.recode.vcf`.*
+*58 loci in `outlierloci6p9g9_db.recode.vcf`.*
 
-Now, I'm taking the unique to pcadapt vcf file and splitting it into a set with SNPs inside the inversions and set of SNPs outside the inversions.
+Now, I'm taking the pcadapt outliers vcf file and splitting it into a set with SNPs inside the inversions and set of SNPs outside the inversions.
 
 ```
 # Inversions only
-$ vcftools --vcf outlierloci6p9g9_uniq_db.recode.vcf --recode --recode-INFO-all --bed Detected_large_inversions.bed --out outliers6p9g9_uniq_db_invert
+$ vcftools --vcf outlierloci6p9g9_db.recode.vcf --recode --recode-INFO-all --bed Detected_large_inversions.bed --out outliers6p9g9_db_invert
 
     output:
     After filtering, kept 60 out of 60 Individuals
     Outputting VCF file...
         Read 3 BED file entries.
-    After filtering, kept 34 out of a possible 56 Sites
+    After filtering, kept 36 out of a possible 58 Sites
     Run Time = 0.00 seconds
 
 # Inversions excluded
-$ vcftools --vcf outlierloci6p9g9_uniq_db.recode.vcf --recode --recode-INFO-all --exclude-bed Detected_large_inversions.bed --out outliers6p9g9_uniq_db_noinvert
+$ vcftools --vcf outlierloci6p9g9_db.recode.vcf --recode --recode-INFO-all --exclude-bed Detected_large_inversions.bed --out outliers6p9g9_db_noinvert
 
     output:
     After filtering, kept 60 out of 60 Individuals
@@ -2522,3 +2528,97 @@ $ vcftools --vcf outlierloci6p9g9_uniq_db.recode.vcf --recode --recode-INFO-all 
     After filtering, kept 22 out of a possible 56 Sites
     Run Time = 0.00 seconds
 ```
+
+I'm also creating a vcf file of outliers only including those identified from LFMM (14 SNPs) and GEA (335 SNPs). This will be used for SNP classification and summary statistics. 
+
+```
+$ cat outlier_lfmm2_6p9g9_red.loci.txt outlier_rda.loci.txt  > all_gea.outliers
+```
+
+```
+$ vcftools --vcf outlierloci.recode.vcf --recode --recode-INFO-all --positions all_gea.outliers --out outlierloci_gea
+
+    output:
+    After filtering, kept 60 out of 60 Individuals
+    Outputting VCF file...
+    After filtering, kept 348 out of a possible 404 Sites
+    Run Time = 0.00 seconds
+```
+
+
+I'm also creating a vcf file of outliers only including those identified from LFMM (14 SNPs). This will be used for SNP classification and summary statistics. 14 loci in `outlierloci6p9g9_lfmm.recode.vcf`.
+
+```
+$ vcftools --vcf outlierloci.recode.vcf --recode --recode-INFO-all --positions outlier_lfmm2_6p9g9_red.loci.txt --out outlierloci6p9g9_lfmm
+
+    output:
+    After filtering, kept 60 out of 60 Individuals
+    Outputting VCF file...
+    After filtering, kept 14 out of a possible 70 Sites
+    Run Time = 0.00 seconds
+```
+
+*14 loci in `outlierloci6p9g9_lfmm.recode.vcf`.*
+
+Now, I'm taking the lfmm outliers vcf file and splitting it into a set with SNPs inside the inversions and set of SNPs outside the inversions. In this case, I also have two SNPs that are not in the inversion but are likely in linkage with SNPs in the inversion, so I will include those two SNPs with the inversion set. 
+```
+# Inversions only
+$ vcftools --vcf outlierloci6p9g9_lfmm.recode.vcf --recode --recode-INFO-all --exclude-positions outlier_lfmm2_6p9g9_red_noinvert.loci.txt --out outliers6p9g9_lfmm_invert
+
+    output:
+    After filtering, kept 60 out of 60 Individuals
+    Outputting VCF file...
+        Read 3 BED file entries.
+    After filtering, kept 6 out of a possible 14 Sites
+    Run Time = 0.00 seconds
+
+# Inversions excluded
+$ vcftools --vcf outlierloci6p9g9_lfmm.recode.vcf --recode --recode-INFO-all --positions outlier_lfmm2_6p9g9_red_noinvert.loci.txt --out outliers6p9g9_lfmm_noinvert
+
+    output:
+    After filtering, kept 60 out of 60 Individuals
+    Outputting VCF file...
+        Read 3 BED file entries.
+    After filtering, kept 8 out of a possible 14 Sites
+    Run Time = 0.00 seconds
+```
+
+I'm also creating a vcf file of outliers only including those identified from RDA (335 SNPs). This will be used for SNP classification and summary statistics. 335 loci in `outlierloci_rda.recode.vcf`.
+
+```
+$ vcftools --vcf outlierloci.recode.vcf --recode --recode-INFO-all --positions outlier_rda.loci.txt --out outlierloci_rda
+
+    output:
+    After filtering, kept 60 out of 60 Individuals
+    Outputting VCF file...
+    After filtering, kept 335 out of a possible 404 Sites
+    Run Time = 0.00 seconds
+```
+
+*335 loci in `outlierloci_rda.recode.vcf`.*
+
+Now, I'm taking the lfmm outliers vcf file and splitting it into a set with SNPs inside the inversions and set of SNPs outside the inversions.  
+```
+# Inversions only
+$ vcftools --vcf outlierloci_rda.recode.vcf --recode --recode-INFO-all --bed Detected_large_inversions.bed --out outliers_rda_invert
+
+    output:
+    After filtering, kept 60 out of 60 Individuals
+    Outputting VCF file...
+        Read 3 BED file entries.
+    After filtering, kept 26 out of a possible 335 Sites
+    Run Time = 0.00 seconds
+
+# Inversions excluded
+$ vcftools --vcf outlierloci_rda.recode.vcf --recode --recode-INFO-all --exlude-bed Detected_large_inversions.bed --out outliers_rda_noinvert
+
+    output:
+    After filtering, kept 60 out of 60 Individuals
+    Outputting VCF file...
+        Read 3 BED file entries.
+    After filtering, kept 309 out of a possible 335 Sites
+    Run Time = 0.00 seconds
+```
+
+
+
